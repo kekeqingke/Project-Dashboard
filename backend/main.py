@@ -1,0 +1,298 @@
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
+import models, schemas, crud
+from database import SessionLocal, engine, get_db
+import auth
+from typing import List
+import os
+import uuid
+import shutil
+
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="ZWY项目信息跟踪管理系统", version="1.0.0")
+
+# 创建上传文件夹
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# 挂载静态文件目录
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+# CORS配置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],  # Vue开发服务器
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+@app.get("/")
+async def root():
+    return {"message": "ZWY项目信息跟踪管理系统 API", "status": "运行中"}
+
+@app.post("/token", response_model=schemas.Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = auth.authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = auth.create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer", "user": user}
+
+@app.get("/users/me", response_model=schemas.User)
+async def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
+    return current_user
+
+# 用户管理接口
+@app.post("/users/", response_model=schemas.User)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), 
+                current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    return crud.create_user(db=db, user=user)
+
+@app.get("/users/", response_model=List[schemas.User])
+def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
+               current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    return crud.get_users(db, skip=skip, limit=limit)
+
+@app.put("/users/{user_id}/reset-password", response_model=schemas.User)
+def reset_user_password(user_id: int, db: Session = Depends(get_db),
+                       current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    user = crud.reset_user_password(db=db, user_id=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return user
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db),
+                current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    # 防止删除管理员账户
+    user = crud.get_user(db=db, user_id=user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    if user.role == "admin":
+        raise HTTPException(status_code=400, detail="无法删除管理员账户")
+    
+    success = crud.delete_user(db=db, user_id=user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    return {"message": "用户删除成功"}
+
+# 房间管理接口
+@app.get("/rooms/", response_model=List[schemas.Room])
+def read_rooms(db: Session = Depends(get_db), 
+               current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role == "admin":
+        return crud.get_rooms(db)
+    else:
+        return crud.get_user_rooms(db, current_user.id)
+
+@app.get("/rooms/{room_id}", response_model=schemas.Room)
+def get_room(room_id: int, db: Session = Depends(get_db),
+             current_user: models.User = Depends(auth.get_current_user)):
+    room = crud.get_room_by_id(db=db, room_id=room_id, user_id=current_user.id if current_user.role != "admin" else None)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在或无权限访问")
+    return room
+
+@app.post("/rooms/", response_model=schemas.Room)
+def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db),
+                current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    return crud.create_room(db=db, room=room)
+
+@app.delete("/rooms/{room_id}")
+def delete_room(room_id: int, db: Session = Depends(get_db),
+                current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    success = crud.delete_room(db=db, room_id=room_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    return {"message": "房间删除成功"}
+
+# 房间分配接口
+@app.get("/room-assignments/")
+def get_room_assignments(db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role == "admin":
+        # 管理员可以查看所有房间分配
+        return crud.get_room_assignments(db=db)
+    else:
+        # 其他角色只能查看分配给自己的房间
+        return crud.get_user_room_assignments(db=db, user_id=current_user.id)
+
+@app.post("/room-assignments/")
+def assign_room(assignment: schemas.RoomAssignmentCreate, db: Session = Depends(get_db),
+                current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    return crud.assign_room_to_user(db=db, user_id=assignment.user_id, room_id=assignment.room_id)
+
+@app.delete("/room-assignments/{assignment_id}")
+def delete_room_assignment(assignment_id: int, db: Session = Depends(get_db),
+                          current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    success = crud.delete_room_assignment(db=db, assignment_id=assignment_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="分配关系不存在")
+    return {"message": "删除成功"}
+
+# 质量问题管理接口
+@app.get("/quality-issues/", response_model=List[schemas.QualityIssue])
+def read_quality_issues(room_id: int = None, db: Session = Depends(get_db),
+                       current_user: models.User = Depends(auth.get_current_user)):
+    return crud.get_quality_issues(db, room_id, current_user.id if current_user.role != "admin" else None)
+
+@app.post("/quality-issues/", response_model=schemas.QualityIssue)
+def create_quality_issue(issue: schemas.QualityIssueCreate, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    return crud.create_quality_issue(db=db, issue=issue, user_id=current_user.id)
+
+@app.put("/quality-issues/{issue_id}/accept")
+def accept_quality_issue(issue_id: int, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    return crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+
+@app.put("/quality-issues/{issue_id}", response_model=schemas.QualityIssue)
+def update_quality_issue(issue_id: int, issue_update: dict, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    if issue_update.get("is_verified"):
+        result = crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+        if not result:
+            raise HTTPException(status_code=404, detail="质量问题未找到")
+        return result
+    else:
+        raise HTTPException(status_code=400, detail="不支持的更新操作")
+
+# 客户沟通管理接口
+@app.get("/communications/", response_model=List[schemas.Communication])
+def read_communications(room_id: int = None, db: Session = Depends(get_db),
+                       current_user: models.User = Depends(auth.get_current_user)):
+    return crud.get_communications(db, room_id, current_user.id if current_user.role != "admin" else None)
+
+@app.post("/communications/", response_model=schemas.Communication)
+def create_communication(comm: schemas.CommunicationCreate, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role not in ["customer_ambassador", "admin"]:
+        raise HTTPException(status_code=403, detail="只有客户大使和管理员可以添加沟通记录")
+    return crud.create_communication(db=db, communication=comm, user_id=current_user.id)
+
+@app.put("/communications/{communication_id}", response_model=schemas.Communication)
+def update_communication(communication_id: int, update_data: schemas.CommunicationUpdate, db: Session = Depends(get_db),
+                         current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role not in ["customer_ambassador", "admin"]:
+        raise HTTPException(status_code=403, detail="只有客户大使和管理员可以更新沟通记录")
+    
+    communication = crud.update_communication(db=db, communication_id=communication_id, is_implemented=update_data.is_implemented, user_id=current_user.id if current_user.role != "admin" else None)
+    if not communication:
+        raise HTTPException(status_code=404, detail="沟通记录未找到")
+    
+    return communication
+
+# 房间状态更新接口
+@app.put("/rooms/{room_id}/delivery-status")
+async def update_room_delivery_status(
+    room_id: int,
+    delivery_status: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    # 只有管理员和客户大使可以更新房间状态
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 验证状态值
+    if delivery_status not in ["待交付", "已交付"]:
+        raise HTTPException(status_code=400, detail="无效的交付状态")
+    
+    room.delivery_status = delivery_status
+    db.commit()
+    db.refresh(room)
+    
+    return {"message": "交付状态更新成功", "delivery_status": delivery_status}
+
+@app.put("/rooms/{room_id}/contract-status")
+async def update_room_contract_status(
+    room_id: int,
+    contract_status: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    # 只有管理员和客户大使可以更新房间状态
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 验证状态值
+    if contract_status not in ["待签约", "已签约"]:
+        raise HTTPException(status_code=400, detail="无效的签约状态")
+    
+    room.contract_status = contract_status
+    db.commit()
+    db.refresh(room)
+    
+    return {"message": "签约状态更新成功", "contract_status": contract_status}
+
+# 文件上传接口
+@app.post("/upload-image/")
+async def upload_image(file: UploadFile = File(...), 
+                      current_user: models.User = Depends(auth.get_current_user)):
+    # 检查文件类型
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="只能上传图片文件")
+    
+    # 生成唯一文件名
+    file_extension = file.filename.split('.')[-1]
+    unique_filename = f"{uuid.uuid4()}.{file_extension}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    # 保存文件
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    return {"filename": unique_filename, "url": f"/uploads/{unique_filename}"}
+
+# 管理员汇总接口
+@app.get("/admin/summary")
+def get_summary(building_unit: str = None, db: Session = Depends(get_db),
+                current_user: models.User = Depends(auth.get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足")
+    return crud.get_room_summary(db, building_unit)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
