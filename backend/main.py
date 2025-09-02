@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -265,6 +265,56 @@ async def update_room_contract_status(
     db.refresh(room)
     
     return {"message": "签约状态更新成功", "contract_status": contract_status}
+
+@app.put("/rooms/{room_id}/letter-status")
+async def update_room_letter_status(
+    room_id: int,
+    letter_status: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    # 只有管理员和客户大使可以更新房间状态
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 验证状态值
+    if letter_status not in ["无", "ZX", "SX"]:
+        raise HTTPException(status_code=400, detail="无效的信件状态")
+    
+    room.letter_status = letter_status
+    db.commit()
+    db.refresh(room)
+    
+    return {"message": "信件状态更新成功", "letter_status": letter_status}
+
+@app.put("/rooms/{room_id}/pre-leakage")
+async def update_room_pre_leakage(
+    room_id: int,
+    pre_leakage: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    # 只有管理员和客户大使可以更新房间状态
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 验证状态值
+    if pre_leakage not in ["无", "有"]:
+        raise HTTPException(status_code=400, detail="无效的前期渗漏状态")
+    
+    room.pre_leakage = pre_leakage
+    db.commit()
+    db.refresh(room)
+    
+    return {"message": "前期渗漏状态更新成功", "pre_leakage": pre_leakage}
 
 # 文件上传接口
 @app.post("/upload-image/")

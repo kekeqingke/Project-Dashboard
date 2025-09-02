@@ -33,6 +33,8 @@ class RoomBase(BaseModel):
     status: str = "整改中"
     delivery_status: str = "待交付"
     contract_status: str = "待签约"
+    letter_status: str = "无"
+    pre_leakage: str = "无"
 
 class RoomCreate(RoomBase):
     pass
@@ -51,6 +53,8 @@ class RoomSummary(RoomBase):
     id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
+    letter_status: str = "无"
+    pre_leakage: str = "无"
     
     # Aggregated fields for quality issues
     pending_issues_count: int = 0

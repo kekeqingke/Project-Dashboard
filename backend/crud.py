@@ -342,6 +342,8 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'status': room.status,
             'delivery_status': room.delivery_status,
             'contract_status': room.contract_status,
+            'letter_status': room.letter_status,  # 添加信件状态
+            'pre_leakage': room.pre_leakage,      # 添加前期渗漏
             'created_at': room.created_at,
             'updated_at': room.updated_at,
             

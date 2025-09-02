@@ -29,6 +29,8 @@ class Room(Base):
     status = Column(String, default="整改中")  # 整改中, 验收完成, 闭户
     delivery_status = Column(String, default="待交付")  # 待交付, 已交付
     contract_status = Column(String, default="待签约")  # 待签约, 已签约
+    letter_status = Column(String, default="无")  # 无, ZX, SX
+    pre_leakage = Column(String, default="无")  # 无, 有
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     

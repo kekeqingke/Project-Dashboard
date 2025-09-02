@@ -40,6 +40,19 @@
             <el-option label="无待落实" value="no_comms" />
           </el-select>
           
+          <el-select v-model="selectedLetterFilter" placeholder="信件状态" clearable @change="onFilterChange" style="width: 120px">
+            <el-option label="全部" value="" />
+            <el-option label="无" value="无" />
+            <el-option label="ZX" value="ZX" />
+            <el-option label="SX" value="SX" />
+          </el-select>
+          
+          <el-select v-model="selectedLeakageFilter" placeholder="前期渗漏" clearable @change="onFilterChange" style="width: 120px">
+            <el-option label="全部" value="" />
+            <el-option label="无" value="无" />
+            <el-option label="有" value="有" />
+          </el-select>
+          
           <el-button type="primary" @click="refreshData" :loading="loading">
             刷新
           </el-button>
@@ -109,8 +122,6 @@
             <span>{{ scope.row.pending_issues_count || 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="latest_issue_description" label="问题描述" width="150" show-overflow-tooltip />
-        <el-table-column prop="latest_issue_type" label="问题类型" width="100" />
         <el-table-column label="录入时间" width="120">
           <template #default="scope">
             {{ scope.row.latest_issue_record_date ? formatDate(scope.row.latest_issue_record_date) : '' }}
@@ -123,10 +134,34 @@
             <span>{{ scope.row.pending_communications_count || 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="latest_comm_content" label="沟通内容" width="150" show-overflow-tooltip />
         <el-table-column label="沟通时间" width="120">
           <template #default="scope">
             {{ scope.row.latest_comm_time ? formatDate(scope.row.latest_comm_time) : '' }}
+          </template>
+        </el-table-column>
+        
+        <!-- 客户大使录入字段 -->
+        <el-table-column prop="letter_status" label="信件状态" width="90">
+          <template #default="scope">
+            <el-tag 
+              v-if="scope.row.letter_status && scope.row.letter_status !== '无'" 
+              :type="getLetterStatusType(scope.row.letter_status)" 
+              size="small"
+              :style="getLetterStatusStyle(scope.row.letter_status)"
+            >
+              {{ scope.row.letter_status }}
+            </el-tag>
+            <span v-else>{{ scope.row.letter_status || '无' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="pre_leakage" label="前期渗漏" width="90">
+          <template #default="scope">
+            <el-tag 
+              :type="scope.row.pre_leakage === '有' ? 'danger' : 'info'" 
+              size="small"
+            >
+              {{ scope.row.pre_leakage || '无' }}
+            </el-tag>
           </template>
         </el-table-column>
         
@@ -191,6 +226,8 @@ const selectedDelivery = ref('')
 const selectedContract = ref('')
 const selectedIssueFilter = ref('')
 const selectedCommFilter = ref('')
+const selectedLetterFilter = ref('')
+const selectedLeakageFilter = ref('')
 
 // 分页相关
 const currentPage = ref(1)
@@ -271,6 +308,18 @@ const filteredRooms = computed(() => {
       if (selectedCommFilter.value === 'no_comms' && hasComms) return false
     }
     
+    // 信件状态筛选
+    if (selectedLetterFilter.value) {
+      const letterStatus = room.letter_status || '无'
+      if (letterStatus !== selectedLetterFilter.value) return false
+    }
+    
+    // 前期渗漏筛选
+    if (selectedLeakageFilter.value) {
+      const preLeakage = room.pre_leakage || '无'
+      if (preLeakage !== selectedLeakageFilter.value) return false
+    }
+    
     return true
   })
 })
@@ -316,7 +365,7 @@ const handleCurrentChange = (newPage) => {
 const exportData = () => {
   // 简单的CSV导出
   const csvData = [
-    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '问题描述', '问题类型', '录入时间', '待落实', '沟通内容', '沟通时间', '收房意愿']
+    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '录入时间', '待落实', '沟通时间', '信件状态', '前期渗漏', '收房意愿']
   ]
   
   filteredRooms.value.forEach(room => {
@@ -327,12 +376,11 @@ const exportData = () => {
       room.delivery_status,
       room.contract_status,
       room.pending_issues_count || 0,
-      room.latest_issue_description || '',
-      room.latest_issue_type || '',
       room.latest_issue_record_date ? formatDate(room.latest_issue_record_date) : '',
       room.pending_communications_count || 0,
-      room.latest_comm_content || '',
       room.latest_comm_time ? formatDate(room.latest_comm_time) : '',
+      room.letter_status || '无',
+      room.pre_leakage || '无',
       room.latest_feedback || ''
     ])
   })
@@ -368,6 +416,19 @@ const getStatusType = (status) => {
     '已签约': 'primary'
   }
   return typeMap[status] || 'info'
+}
+
+const getLetterStatusType = (status) => {
+  // 为了确保样式正确应用，这里返回基础类型
+  return 'info'
+}
+
+const getLetterStatusStyle = (status) => {
+  const styleMap = {
+    'ZX': 'background-color: #ff4757; border-color: #ff4757; color: white;',
+    'SX': 'background-color: #5f27cd; border-color: #5f27cd; color: white;'
+  }
+  return styleMap[status] || ''
 }
 
 const formatDate = (dateString) => {

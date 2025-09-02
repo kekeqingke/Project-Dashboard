@@ -83,6 +83,31 @@
                       <el-option label="已签约" value="已签约" />
                     </el-select>
                   </div>
+                  <div class="control-group">
+                    <label>信件状态：</label>
+                    <el-select 
+                      v-model="currentRoom.letter_status" 
+                      size="small"
+                      @change="updateLetterStatus"
+                      style="width: 80px"
+                    >
+                      <el-option label="无" value="无" />
+                      <el-option label="ZX" value="ZX" />
+                      <el-option label="SX" value="SX" />
+                    </el-select>
+                  </div>
+                  <div class="control-group">
+                    <label>前期渗漏：</label>
+                    <el-select 
+                      v-model="currentRoom.pre_leakage" 
+                      size="small"
+                      @change="updatePreLeakage"
+                      style="width: 80px"
+                    >
+                      <el-option label="无" value="无" />
+                      <el-option label="有" value="有" />
+                    </el-select>
+                  </div>
                 </div>
                 <el-button 
                   type="primary" 
@@ -873,6 +898,64 @@ const updateContractStatus = async (newStatus) => {
       const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
       if (originalRoom) {
         currentRoom.value.contract_status = originalRoom.contract_status
+      }
+    }
+  }
+}
+
+// 更新信件状态
+const updateLetterStatus = async (newStatus) => {
+  try {
+    await api.put(`/rooms/${selectedRoomId.value}/letter-status`, null, {
+      params: { letter_status: newStatus }
+    })
+    ElMessage.success('信件状态更新成功')
+    // 更新本地状态
+    if (currentRoom.value) {
+      currentRoom.value.letter_status = newStatus
+    }
+    // 更新房间列表中的状态
+    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
+    if (roomIndex !== -1) {
+      assignedRooms.value[roomIndex].letter_status = newStatus
+    }
+  } catch (error) {
+    console.error('更新信件状态失败:', error)
+    ElMessage.error('更新信件状态失败')
+    // 恢复原状态
+    if (currentRoom.value) {
+      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
+      if (originalRoom) {
+        currentRoom.value.letter_status = originalRoom.letter_status
+      }
+    }
+  }
+}
+
+// 更新前期渗漏状态
+const updatePreLeakage = async (newStatus) => {
+  try {
+    await api.put(`/rooms/${selectedRoomId.value}/pre-leakage`, null, {
+      params: { pre_leakage: newStatus }
+    })
+    ElMessage.success('前期渗漏状态更新成功')
+    // 更新本地状态
+    if (currentRoom.value) {
+      currentRoom.value.pre_leakage = newStatus
+    }
+    // 更新房间列表中的状态
+    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
+    if (roomIndex !== -1) {
+      assignedRooms.value[roomIndex].pre_leakage = newStatus
+    }
+  } catch (error) {
+    console.error('更新前期渗漏状态失败:', error)
+    ElMessage.error('更新前期渗漏状态失败')
+    // 恢复原状态
+    if (currentRoom.value) {
+      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
+      if (originalRoom) {
+        currentRoom.value.pre_leakage = originalRoom.pre_leakage
       }
     }
   }

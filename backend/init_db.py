@@ -34,15 +34,22 @@ try:
 
     # 创建房间数据
     # 3单元和4单元：3-46层，每层01-04号房，排除14层和30层（避难层）
+    # 4单元额外排除：4503、4504、4601、4602、4603、4604
     excluded_floors = [14, 30]  # 避难层
+    excluded_4_unit_rooms = ["4503", "4504", "4601", "4602", "4603", "4604"]  # 4单元排除的房间
+    
     for building_unit in ["3单元", "4单元"]:
         for floor in range(3, 47):  # 3到46楼
             if floor in excluded_floors:
                 continue  # 跳过避难层
             for room_num in ["01", "02", "03", "04"]:
+                room_number = f"{floor:02d}{room_num}"
+                # 如果是4单元，检查是否在排除列表中
+                if building_unit == "4单元" and room_number in excluded_4_unit_rooms:
+                    continue  # 跳过4单元的特定房间
                 room = models.Room(
                     building_unit=building_unit,
-                    room_number=f"{floor:02d}{room_num}",
+                    room_number=room_number,
                     status="整改中"
                 )
                 db.add(room)
