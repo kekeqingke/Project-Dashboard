@@ -1,7 +1,7 @@
 <template>
   <div class="engineer-dashboard">
     <div class="dashboard-header">
-      <h3>项目工程师工作台</h3>
+      <h3>{{ getWorkplaceTitle() }}</h3>
       <p class="role-description">管理分配给您的房间的质量问题</p>
     </div>
 
@@ -69,6 +69,18 @@
                     <label>签约状态：</label>
                     <el-tag :type="currentRoom.contract_status === '已签约' ? 'success' : 'warning'" size="small">
                       {{ currentRoom.contract_status || '待签约' }}
+                    </el-tag>
+                  </div>
+                  <div class="status-item">
+                    <label>信件状态：</label>
+                    <el-tag :type="currentRoom.letter_status === 'ZX' ? 'danger' : currentRoom.letter_status === 'SX' ? 'warning' : 'info'" size="small">
+                      {{ currentRoom.letter_status || '无' }}
+                    </el-tag>
+                  </div>
+                  <div class="status-item">
+                    <label>前期渗漏：</label>
+                    <el-tag :type="currentRoom.pre_leakage === '有' ? 'primary' : 'success'" size="small">
+                      {{ currentRoom.pre_leakage || '无' }}
                     </el-tag>
                   </div>
                 </div>
@@ -415,6 +427,17 @@ const getStatusType = (status) => {
   return typeMap[status] || 'info'
 }
 
+// 获取工作台标题
+const getWorkplaceTitle = () => {
+  const userRole = authStore.user?.role
+  if (userRole === 'maintenance_engineer') {
+    return '维修工程师工作台'
+  } else if (userRole === 'project_engineer') {
+    return '项目工程师工作台'
+  }
+  return '工程师工作台'
+}
+
 
 // 打开质量问题对话框
 const openQualityIssueDialog = () => {
@@ -627,7 +650,8 @@ onMounted(() => {
 
 .status-display {
   display: flex;
-  gap: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .status-item {
