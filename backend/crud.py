@@ -226,6 +226,31 @@ def accept_quality_issue(db: Session, issue_id: int, user_id: int):
         return issue
     return None
 
+def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.QualityIssueUpdate, user_id: Optional[int] = None):
+    """更新质量问题"""
+    query = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id)
+    
+    # 如果提供了user_id，检查用户是否有权限访问该质量问题
+    if user_id:
+        query = query.join(models.UserRoom, models.QualityIssue.room_id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id)
+    
+    issue = query.first()
+    if issue:
+        for key, value in issue_update.dict(exclude_unset=True).items():
+            if value is not None:
+                setattr(issue, key, value)
+        db.commit()
+        db.refresh(issue)
+        
+        # 更新房间状态
+        update_room_status(db, issue.room_id)
+        
+        # 设置is_verified字段（保证前端兼容性）
+        issue.is_verified = issue.status == "已验收"
+        
+        return issue
+    return None
+
 # Communication operations
 def get_communications(db: Session, room_id: Optional[int] = None, user_id: Optional[int] = None):
     query = db.query(models.Communication).join(models.User, models.Communication.user_id == models.User.id)
@@ -344,6 +369,7 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'contract_status': room.contract_status,
             'letter_status': room.letter_status,  # 添加信件状态
             'pre_leakage': room.pre_leakage,      # 添加前期渗漏
+            'expected_delivery_date': room.expected_delivery_date,  # 添加预计交付时间
             'created_at': room.created_at,
             'updated_at': room.updated_at,
             
@@ -371,3 +397,125 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
         "contract_summary": contract_count,
         "rooms": rooms_with_summary
     }
+
+def clear_room_content(db: Session, room_id: int):
+    """清空房间内容数据，保留用户分配和房号
+    
+    清空以下数据：
+    - 质量问题记录(quality_issues)
+    - 沟通记录(communications)
+    - 重置房间状态为初始值
+    
+    保留以下数据：
+    - 房间基本信息(building_unit, room_number)
+    - 用户-房间分配关系(user_rooms)
+    """
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        return False
+    
+    # 删除房间的质量问题记录
+    deleted_issues = db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room_id).delete()
+    
+    # 删除房间的沟通记录
+    deleted_communications = db.query(models.Communication).filter(models.Communication.room_id == room_id).delete()
+    
+    # 重置房间状态为初始值
+    room.status = "整改中"
+    room.delivery_status = "待交付"
+    room.contract_status = "待签约"
+    room.letter_status = "无"
+    room.pre_leakage = "无"
+    
+    db.commit()
+    
+    return {
+        "room_id": room_id,
+        "deleted_issues": deleted_issues,
+        "deleted_communications": deleted_communications,
+        "message": f"房间 {room.building_unit}-{room.room_number} 内容已清空，保留用户分配"
+    }
+
+def clear_all_rooms_content(db: Session):
+    """清空所有房间内容数据，保留用户分配和房号
+    
+    批量执行clear_room_content操作
+    """
+    rooms = db.query(models.Room).all()
+    if not rooms:
+        return {"message": "没有找到房间数据"}
+    
+    total_deleted_issues = 0
+    total_deleted_communications = 0
+    cleared_rooms = []
+    
+    for room in rooms:
+        # 删除质量问题记录
+        deleted_issues = db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room.id).delete()
+        total_deleted_issues += deleted_issues
+        
+        # 删除沟通记录
+        deleted_communications = db.query(models.Communication).filter(models.Communication.room_id == room.id).delete()
+        total_deleted_communications += deleted_communications
+        
+        # 重置房间状态
+        room.status = "整改中"
+        room.delivery_status = "待交付"
+        room.contract_status = "待签约"
+        room.letter_status = "无"
+        room.pre_leakage = "无"
+        
+        cleared_rooms.append(f"{room.building_unit}-{room.room_number}")
+    
+    db.commit()
+    
+    return {
+        "total_rooms": len(rooms),
+        "cleared_rooms": cleared_rooms,
+        "total_deleted_issues": total_deleted_issues,
+        "total_deleted_communications": total_deleted_communications,
+        "message": f"已清空 {len(rooms)} 个房间的内容数据，保留用户分配和房号信息"
+    }
+
+# Customer CRUD operations
+def get_customer_by_room_id(db: Session, room_id: int):
+    """根据房间ID获取客户信息"""
+    return db.query(models.Customer).filter(models.Customer.room_id == room_id).first()
+
+def create_customer(db: Session, customer: schemas.CustomerCreate):
+    """创建客户信息"""
+    db_customer = models.Customer(**customer.dict())
+    db.add(db_customer)
+    db.commit()
+    db.refresh(db_customer)
+    return db_customer
+
+def update_customer(db: Session, customer_id: int, customer: schemas.CustomerUpdate):
+    """更新客户信息"""
+    db_customer = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
+    if db_customer:
+        for key, value in customer.dict(exclude_unset=True).items():
+            setattr(db_customer, key, value)
+        db.commit()
+        db.refresh(db_customer)
+    return db_customer
+
+def delete_customer(db: Session, customer_id: int):
+    """删除客户信息"""
+    db_customer = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
+    if db_customer:
+        db.delete(db_customer)
+        db.commit()
+        return True
+    return False
+
+def get_customer(db: Session, customer_id: int):
+    """根据ID获取客户信息"""
+    return db.query(models.Customer).filter(models.Customer.id == customer_id).first()
+
+def check_id_card_exists(db: Session, id_card: str, exclude_customer_id: int = None):
+    """检查身份证号是否已存在"""
+    query = db.query(models.Customer).filter(models.Customer.id_card == id_card)
+    if exclude_customer_id:
+        query = query.filter(models.Customer.id != exclude_customer_id)
+    return query.first() is not None

@@ -66,6 +66,10 @@
                     </el-tag>
                   </div>
                   <div class="status-item">
+                    <label>预计交付时间：</label>
+                    <span class="status-value">{{ formatExpectedDeliveryDate(currentRoom.expected_delivery_date) }}</span>
+                  </div>
+                  <div class="status-item">
                     <label>签约状态：</label>
                     <el-tag :type="currentRoom.contract_status === '已签约' ? 'success' : 'warning'" size="small">
                       {{ currentRoom.contract_status || '待签约' }}
@@ -154,6 +158,13 @@
                   <p class="issue-description">{{ issue.description }}</p>
                   <div class="issue-actions">
                     <el-button 
+                      type="primary" 
+                      size="small"
+                      @click="editQualityIssue(issue)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button 
                       v-if="!issue.is_verified" 
                       type="success" 
                       size="small"
@@ -227,7 +238,7 @@
     <!-- 添加质量问题对话框 -->
     <el-dialog
       v-model="qualityIssueDialogVisible"
-      title="记录质量问题"
+      :title="editingQualityIssue ? '编辑质量问题' : '记录质量问题'"
       width="600px"
     >
       <el-form :model="qualityIssueForm" label-width="100px">
@@ -252,11 +263,11 @@
             <el-option label="材料备货" value="材料备货" />
           </el-select>
         </el-form-item>
-        <el-form-item label="录入时间" required>
+        <el-form-item label="完成时间" required>
           <el-date-picker
             v-model="qualityIssueForm.record_date"
             type="date"
-            placeholder="请选择录入时间"
+            placeholder="请选择完成时间"
             format="YYYY/MM/DD"
             value-format="YYYY-MM-DD"
             style="width: 100%"
@@ -266,6 +277,7 @@
       
       <template #footer>
         <el-button @click="qualityIssueDialogVisible = false">取消</el-button>
+        <el-button @click="resetQualityIssueForm">重置</el-button>
         <el-button type="primary" @click="saveQualityIssue">保存</el-button>
       </template>
     </el-dialog>
@@ -292,6 +304,7 @@ const communications = ref([])
 
 // 对话框控制
 const qualityIssueDialogVisible = ref(false)
+const editingQualityIssue = ref(null)
 
 // 表单数据
 const qualityIssueForm = ref({
@@ -438,15 +451,35 @@ const getWorkplaceTitle = () => {
   return '工程师工作台'
 }
 
+// 格式化预计交付时间
+const formatExpectedDeliveryDate = (dateString) => {
+  if (!dateString) return '未设置'
+  const date = new Date(dateString)
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`
+}
+
 
 // 打开质量问题对话框
 const openQualityIssueDialog = () => {
+  editingQualityIssue.value = null
   // 设置默认录入时间为今天
   const today = new Date().toISOString().split('T')[0]
   qualityIssueForm.value = {
     description: '',
     issue_type: '',
     record_date: today,
+    images: []
+  }
+  qualityIssueDialogVisible.value = true
+}
+
+// 编辑质量问题
+const editQualityIssue = (issue) => {
+  editingQualityIssue.value = issue
+  qualityIssueForm.value = {
+    description: issue.description || '',
+    issue_type: issue.issue_type || '',
+    record_date: issue.record_date ? new Date(issue.record_date).toISOString().split('T')[0] : '',
     images: []
   }
   qualityIssueDialogVisible.value = true
@@ -465,7 +498,7 @@ const saveQualityIssue = async () => {
   }
   
   if (!qualityIssueForm.value.record_date) {
-    ElMessage.error('请选择录入时间')
+    ElMessage.error('请选择完成时间')
     return
   }
   
@@ -474,16 +507,25 @@ const saveQualityIssue = async () => {
     const recordDate = qualityIssueForm.value.record_date ? 
       new Date(qualityIssueForm.value.record_date + 'T00:00:00').toISOString() : null
     
-    await api.post('/quality-issues/', {
+    const data = {
       room_id: selectedRoomId.value,
       description: qualityIssueForm.value.description,
       issue_type: qualityIssueForm.value.issue_type,
       record_date: recordDate,
-      // 这里需要处理图片上传，暂时先不上传图片
-    })
+    }
     
-    ElMessage.success('质量问题记录成功')
+    if (editingQualityIssue.value) {
+      // 编辑模式
+      await api.put(`/quality-issues/${editingQualityIssue.value.id}`, data)
+      ElMessage.success('质量问题更新成功')
+    } else {
+      // 新增模式
+      await api.post('/quality-issues/', data)
+      ElMessage.success('质量问题记录成功')
+    }
+    
     qualityIssueDialogVisible.value = false
+    editingQualityIssue.value = null
     
     // 刷新当前房间数据和汇总信息
     await fetchRoomDetails(selectedRoomId.value)
@@ -495,7 +537,19 @@ const saveQualityIssue = async () => {
     }
   } catch (error) {
     console.error('保存质量问题失败:', error)
-    ElMessage.error('保存质量问题失败')
+    const action = editingQualityIssue.value ? '更新' : '保存'
+    ElMessage.error(`${action}质量问题失败`)
+  }
+}
+
+// 重置质量问题表单
+const resetQualityIssueForm = () => {
+  const today = new Date().toISOString().split('T')[0]
+  qualityIssueForm.value = {
+    description: '',
+    issue_type: '',
+    record_date: today,
+    images: []
   }
 }
 
@@ -665,6 +719,18 @@ onMounted(() => {
   color: #606266;
   white-space: nowrap;
   font-weight: 500;
+}
+
+.status-value {
+  background-color: #f4f4f5;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  color: #606266;
+  font-size: 12px;
+  padding: 4px 8px;
+  min-width: 40px;
+  text-align: center;
+  display: inline-block;
 }
 
 .room-stats {

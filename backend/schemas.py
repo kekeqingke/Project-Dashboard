@@ -1,6 +1,7 @@
-from pydantic import BaseModel, computed_field
-from datetime import datetime
+from pydantic import BaseModel, computed_field, field_validator
+from datetime import datetime, date
 from typing import List, Optional, Any
+import re
 
 # User schemas
 class UserBase(BaseModel):
@@ -35,6 +36,7 @@ class RoomBase(BaseModel):
     contract_status: str = "待签约"
     letter_status: str = "无"
     pre_leakage: str = "无"
+    expected_delivery_date: Optional[date] = None
 
 class RoomCreate(RoomBase):
     pass
@@ -55,6 +57,7 @@ class RoomSummary(RoomBase):
     updated_at: Optional[datetime] = None
     letter_status: str = "无"
     pre_leakage: str = "无"
+    expected_delivery_date: Optional[date] = None
     
     # Aggregated fields for quality issues
     pending_issues_count: int = 0
@@ -88,6 +91,11 @@ class QualityIssueBase(BaseModel):
 
 class QualityIssueCreate(QualityIssueBase):
     pass
+
+class QualityIssueUpdate(BaseModel):
+    description: Optional[str] = None
+    issue_type: Optional[str] = None
+    record_date: Optional[datetime] = None
 
 class QualityIssue(QualityIssueBase):
     id: int
@@ -136,6 +144,59 @@ class Communication(CommunicationBase):
     image: Optional[str] = None  # 沟通记录图片文件名
     is_implemented: bool = False  # 是否已落实
     created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Customer schemas
+class CustomerBase(BaseModel):
+    name: str
+    gender: str
+    id_card: str
+    phone: str
+    customer_level: str
+    work_unit: Optional[str] = None
+    
+    @field_validator('gender')
+    @classmethod
+    def validate_gender(cls, v):
+        if v not in ['男', '女']:
+            raise ValueError('性别必须为 男 或 女')
+        return v
+    
+    @field_validator('id_card')
+    @classmethod
+    def validate_id_card(cls, v):
+        # 简化的身份证号验证
+        if not re.match(r'^\d{17}[\dXx]$', v):
+            raise ValueError('身份证号码格式不正确')
+        return v
+    
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v):
+        if not re.match(r'^1[3-9]\d{9}$', v):
+            raise ValueError('手机号码格式不正确')
+        return v
+    
+    @field_validator('customer_level')
+    @classmethod
+    def validate_customer_level(cls, v):
+        if v not in ['A', 'B', 'C']:
+            raise ValueError('客户分级必须为 A、B 或 C')
+        return v
+
+class CustomerCreate(CustomerBase):
+    room_id: int
+
+class CustomerUpdate(CustomerBase):
+    pass
+
+class Customer(CustomerBase):
+    id: int
+    room_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

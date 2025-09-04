@@ -122,11 +122,6 @@
             <span>{{ scope.row.pending_issues_count || 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="录入时间" width="120">
-          <template #default="scope">
-            {{ scope.row.latest_issue_record_date ? formatDate(scope.row.latest_issue_record_date) : '' }}
-          </template>
-        </el-table-column>
         
         <!-- 待落实相关列 -->
         <el-table-column label="待落实" width="70" align="center">
@@ -134,13 +129,13 @@
             <span>{{ scope.row.pending_communications_count || 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="沟通时间" width="120">
-          <template #default="scope">
-            {{ scope.row.latest_comm_time ? formatDate(scope.row.latest_comm_time) : '' }}
-          </template>
-        </el-table-column>
         
         <!-- 客户大使录入字段 -->
+        <el-table-column prop="expected_delivery_date" label="预计交付时间" width="120">
+          <template #default="scope">
+            {{ scope.row.expected_delivery_date ? formatDate(scope.row.expected_delivery_date) : '' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="letter_status" label="信件状态" width="90">
           <template #default="scope">
             <el-tag 
@@ -165,18 +160,6 @@
           </template>
         </el-table-column>
         
-        <!-- 收房意愿 -->
-        <el-table-column label="收房意愿" width="100">
-          <template #default="scope">
-            <el-tag 
-              v-if="scope.row.latest_feedback" 
-              :type="scope.row.latest_feedback === '高' ? 'success' : 'danger'"
-              size="small"
-            >
-              {{ scope.row.latest_feedback }}
-            </el-tag>
-          </template>
-        </el-table-column>
         
         <el-table-column label="操作" width="100">
           <template #default="scope">
@@ -365,7 +348,7 @@ const handleCurrentChange = (newPage) => {
 const exportData = () => {
   // 简单的CSV导出
   const csvData = [
-    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '录入时间', '待落实', '沟通时间', '信件状态', '前期渗漏', '收房意愿']
+    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '待落实', '预计交付时间', '信件状态', '前期渗漏']
   ]
   
   filteredRooms.value.forEach(room => {
@@ -376,12 +359,10 @@ const exportData = () => {
       room.delivery_status,
       room.contract_status,
       room.pending_issues_count || 0,
-      room.latest_issue_record_date ? formatDate(room.latest_issue_record_date) : '',
       room.pending_communications_count || 0,
-      room.latest_comm_time ? formatDate(room.latest_comm_time) : '',
+      room.expected_delivery_date ? formatDate(room.expected_delivery_date) : '',
       room.letter_status || '无',
-      room.pre_leakage || '无',
-      room.latest_feedback || ''
+      room.pre_leakage || '无'
     ])
   })
   

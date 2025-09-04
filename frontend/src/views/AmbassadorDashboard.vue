@@ -44,6 +44,78 @@
         </el-select>
       </div>
 
+      <!-- 客户信息卡片 -->
+      <div v-if="currentRoom" class="customer-info-card">
+        <el-card>
+          <template #header>
+            <div class="card-header">
+              <div class="header-title">
+                <el-icon><User /></el-icon>
+                <span>客户信息</span>
+              </div>
+              <div class="header-actions">
+                <el-button 
+                  v-if="!currentCustomer" 
+                  type="primary" 
+                  size="small"
+                  @click="openCustomerDialog"
+                >
+                  <el-icon><Plus /></el-icon>
+                  录入客户信息
+                </el-button>
+                <div v-else class="customer-actions">
+                  <el-button type="primary" size="small" @click="openCustomerDialog(currentCustomer)">
+                    <el-icon><Edit /></el-icon>
+                    编辑
+                  </el-button>
+                  <el-button type="danger" size="small" @click="deleteCustomerInfo">
+                    <el-icon><Delete /></el-icon>
+                    删除
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </template>
+          
+          <div v-if="!currentCustomer" class="no-customer">
+            <el-empty description="暂无客户信息" :image-size="80" />
+          </div>
+          
+          <div v-else class="customer-details">
+            <div class="customer-info-row">
+              <div class="info-item">
+                <span class="info-label">姓名：</span>
+                <span class="info-value">{{ currentCustomer.name }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">性别：</span>
+                <span class="info-value">{{ currentCustomer.gender }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">客户分级：</span>
+                <el-tag :type="getCustomerLevelType(currentCustomer.customer_level)" size="small">
+                  {{ currentCustomer.customer_level }}级
+                </el-tag>
+              </div>
+            </div>
+            <div class="customer-info-row">
+              <div class="info-item">
+                <span class="info-label">身份证号：</span>
+                <span class="info-value">{{ currentCustomer.id_card }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">手机号：</span>
+                <span class="info-value">{{ currentCustomer.phone }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">工作单位：</span>
+                <span class="info-value">{{ currentCustomer.work_unit || '无' }}</span>
+              </div>
+            </div>
+          </div>
+        </el-card>
+      </div>
+
       <!-- 当前房间信息 -->
       <div v-if="currentRoom" class="current-room-info">
         <el-card>
@@ -70,6 +142,20 @@
                       <el-option label="待交付" value="待交付" />
                       <el-option label="已交付" value="已交付" />
                     </el-select>
+                  </div>
+                  <div class="control-group">
+                    <label>预计交付时间：</label>
+                    <el-date-picker
+                      v-model="currentRoom.expected_delivery_date"
+                      type="date"
+                      size="small"
+                      placeholder="选择日期"
+                      format="MM/DD"
+                      value-format="YYYY-MM-DD"
+                      @change="updateExpectedDeliveryDate"
+                      :disabled="currentRoom.delivery_status === '已交付'"
+                      style="width: 120px"
+                    />
                   </div>
                   <div class="control-group">
                     <label>签约状态：</label>
@@ -179,6 +265,13 @@
                   <p class="issue-description">{{ issue.description }}</p>
                   <div class="issue-actions">
                     <el-button 
+                      type="primary" 
+                      size="small"
+                      @click="editQualityIssue(issue)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button 
                       v-if="!issue.is_verified" 
                       type="success" 
                       size="small"
@@ -235,16 +328,21 @@
                     <p>{{ comm.content }}</p>
                   </div>
                   <div v-if="comm.feedback" class="comm-section">
-                    <strong>收房意愿:</strong>
-                    <el-tag :type="comm.feedback === '高' ? 'success' : 'danger'">
-                      {{ comm.feedback }}
-                    </el-tag>
+                    <strong>核心诉求:</strong>
+                    <p>{{ comm.feedback }}</p>
                   </div>
                   <div v-if="comm.customer_description" class="comm-section">
                     <strong>客户描摹:</strong>
                     <p>{{ comm.customer_description }}</p>
                   </div>
                   <div class="comm-actions">
+                    <el-button 
+                      type="primary" 
+                      size="small"
+                      @click="editCommunication(comm)"
+                    >
+                      编辑
+                    </el-button>
                     <el-button 
                       v-if="!comm.is_implemented" 
                       type="success" 
@@ -265,7 +363,7 @@
     <!-- 快速添加沟通记录对话框 -->
     <el-dialog
       v-model="communicationDialogVisible"
-      title="添加沟通记录"
+      :title="editingCommunication ? '编辑沟通记录' : '添加沟通记录'"
       width="700px"
     >
       <el-form :model="communicationForm" label-width="100px">
@@ -290,15 +388,13 @@
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="收房意愿" required>
-          <el-select 
-            v-model="communicationForm.feedback" 
-            placeholder="请选择收房意愿"
-            style="width: 100%"
-          >
-            <el-option label="高" value="高" />
-            <el-option label="低" value="低" />
-          </el-select>
+        <el-form-item label="核心诉求" required>
+          <el-input
+            v-model="communicationForm.feedback"
+            type="textarea"
+            rows="3"
+            placeholder="请输入核心诉求"
+          />
         </el-form-item>
         <el-form-item label="客户描摹">
           <el-input
@@ -358,6 +454,7 @@
       
       <template #footer>
         <el-button @click="communicationDialogVisible = false">取消</el-button>
+        <el-button @click="resetCommunicationForm">重置</el-button>
         <el-button type="primary" @click="saveCommunication">保存</el-button>
       </template>
     </el-dialog>
@@ -365,7 +462,7 @@
     <!-- 添加质量问题对话框 -->
     <el-dialog
       v-model="qualityIssueDialogVisible"
-      title="记录质量问题"
+      :title="editingQualityIssue ? '编辑质量问题' : '记录质量问题'"
       width="600px"
     >
       <el-form :model="qualityIssueForm" label-width="100px">
@@ -390,11 +487,11 @@
             <el-option label="材料备货" value="材料备货" />
           </el-select>
         </el-form-item>
-        <el-form-item label="录入时间" required>
+        <el-form-item label="完成时间" required>
           <el-date-picker
             v-model="qualityIssueForm.record_date"
             type="date"
-            placeholder="请选择录入时间"
+            placeholder="请选择完成时间"
             format="YYYY/MM/DD"
             value-format="YYYY-MM-DD"
             style="width: 100%"
@@ -404,7 +501,69 @@
       
       <template #footer>
         <el-button @click="qualityIssueDialogVisible = false">取消</el-button>
+        <el-button @click="resetQualityIssueForm">重置</el-button>
         <el-button type="primary" @click="saveQualityIssue">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 客户信息录入/编辑对话框 -->
+    <el-dialog
+      v-model="customerDialogVisible"
+      :title="currentCustomer ? '编辑客户信息' : '录入客户信息'"
+      width="600px"
+    >
+      <el-form ref="customerFormRef" :model="customerForm" label-width="100px" :rules="customerRules">
+        <el-form-item label="房间">
+          <span>{{ currentRoom?.building_unit }} {{ currentRoom?.room_number }}号房</span>
+        </el-form-item>
+        <el-form-item label="客户姓名" prop="name" required>
+          <el-input
+            v-model="customerForm.name"
+            placeholder="请输入客户姓名"
+            maxlength="50"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="性别" prop="gender" required>
+          <el-radio-group v-model="customerForm.gender">
+            <el-radio value="男">男</el-radio>
+            <el-radio value="女">女</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="身份证号" prop="id_card" required>
+          <el-input
+            v-model="customerForm.id_card"
+            placeholder="请输入18位身份证号"
+            maxlength="18"
+          />
+        </el-form-item>
+        <el-form-item label="手机号" prop="phone" required>
+          <el-input
+            v-model="customerForm.phone"
+            placeholder="请输入11位手机号"
+            maxlength="11"
+          />
+        </el-form-item>
+        <el-form-item label="客户分级" prop="customer_level" required>
+          <el-select v-model="customerForm.customer_level" placeholder="请选择客户分级">
+            <el-option label="A级" value="A" />
+            <el-option label="B级" value="B" />
+            <el-option label="C级" value="C" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="工作单位" prop="work_unit">
+          <el-input
+            v-model="customerForm.work_unit"
+            placeholder="请输入工作单位（选填）"
+            maxlength="100"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <el-button @click="closeCustomerDialog">取消</el-button>
+        <el-button type="primary" @click="saveCustomer">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -414,7 +573,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, ChatLineSquare, Warning, Select, Plus, Refresh, Upload, Delete } from '@element-plus/icons-vue'
+import { Loading, ChatLineSquare, Warning, Select, Plus, Refresh, Upload, Delete, User, Edit } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import api from '../api/index.js'
 
@@ -427,13 +586,20 @@ const selectedRoomId = ref(null)
 const currentRoom = ref(null)
 const qualityIssues = ref([])
 const communications = ref([])
+const currentCustomer = ref(null)
 
 // 对话框控制
 const communicationDialogVisible = ref(false)
 const qualityIssueDialogVisible = ref(false)
+const customerDialogVisible = ref(false)
+const editingCommunication = ref(null)
+const editingQualityIssue = ref(null)
 
 // 图片上传相关
 const uploadLoading = ref(false)
+
+// 表单引用
+const customerFormRef = ref(null)
 
 // 表单数据
 const communicationForm = ref({
@@ -449,6 +615,37 @@ const qualityIssueForm = ref({
   record_date: '',
   images: []
 })
+
+const customerForm = ref({
+  name: '',
+  gender: '',
+  id_card: '',
+  phone: '',
+  customer_level: '',
+  work_unit: ''
+})
+
+// 客户信息表单验证规则
+const customerRules = {
+  name: [
+    { required: true, message: '请输入客户姓名', trigger: 'blur' },
+    { min: 2, max: 50, message: '姓名长度在 2 到 50 个字符', trigger: 'blur' }
+  ],
+  gender: [
+    { required: true, message: '请选择性别', trigger: 'change' }
+  ],
+  id_card: [
+    { required: true, message: '请输入身份证号', trigger: 'blur' },
+    { pattern: /^\d{17}[\dXx]$/, message: '身份证号格式不正确', trigger: 'blur' }
+  ],
+  phone: [
+    { required: true, message: '请输入手机号', trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }
+  ],
+  customer_level: [
+    { required: true, message: '请选择客户分级', trigger: 'change' }
+  ]
+}
 
 // 获取分配给当前用户的房间
 const fetchAssignedRooms = async () => {
@@ -513,6 +710,19 @@ const fetchRoomDetails = async (roomId) => {
     // 获取沟通记录
     const communicationsResponse = await api.get(`/communications/?room_id=${roomId}`)
     communications.value = communicationsResponse.data
+    
+    // 获取客户信息
+    try {
+      const customerResponse = await api.get(`/customers/room/${roomId}`)
+      currentCustomer.value = customerResponse.data
+    } catch (customerError) {
+      // 如果没有客户信息（404），这是正常情况
+      if (customerError.response?.status === 404) {
+        currentCustomer.value = null
+      } else {
+        console.error('获取客户信息失败:', customerError)
+      }
+    }
   } catch (error) {
     console.error('获取房间详情失败:', error)
     ElMessage.error('获取房间详情失败')
@@ -578,6 +788,7 @@ const getStatusType = (status) => {
 
 // 打开沟通记录对话框
 const openCommunicationDialog = () => {
+  editingCommunication.value = null
   // 设置默认沟通时间为今天日期
   const today = new Date().toISOString().split('T')[0]
   communicationForm.value = {
@@ -588,6 +799,32 @@ const openCommunicationDialog = () => {
     image: ''
   }
   communicationDialogVisible.value = true
+}
+
+// 编辑沟通记录
+const editCommunication = (comm) => {
+  editingCommunication.value = comm
+  communicationForm.value = {
+    content: comm.content || '',
+    communication_time: comm.communication_time ? new Date(comm.communication_time).toISOString().split('T')[0] : '',
+    feedback: comm.feedback || '',
+    customer_description: comm.customer_description || '',
+    image: comm.image || ''
+  }
+  communicationDialogVisible.value = true
+}
+
+// 重置沟通记录表单
+const resetCommunicationForm = () => {
+  const today = new Date().toISOString().split('T')[0]
+  communicationForm.value = {
+    content: '',
+    communication_time: today,
+    feedback: '',
+    customer_description: '',
+    image: ''
+  }
+  ElMessage.success('表单已重置')
 }
 
 // 保存沟通记录
@@ -603,7 +840,7 @@ const saveCommunication = async () => {
   }
   
   if (!communicationForm.value.feedback) {
-    ElMessage.error('请选择收房意愿')
+    ElMessage.error('请选择核心诉求')
     return
   }
   
@@ -612,17 +849,27 @@ const saveCommunication = async () => {
     const communicationTime = communicationForm.value.communication_time ? 
       new Date(communicationForm.value.communication_time + 'T00:00:00').toISOString() : null
     
-    await api.post('/communications/', {
+    const data = {
       room_id: selectedRoomId.value,
       content: communicationForm.value.content,
       communication_time: communicationTime,
       feedback: communicationForm.value.feedback,
       customer_description: communicationForm.value.customer_description,
       image: communicationForm.value.image || null
-    })
+    }
     
-    ElMessage.success('沟通记录保存成功')
+    if (editingCommunication.value) {
+      // 编辑模式
+      await api.put(`/communications/${editingCommunication.value.id}`, data)
+      ElMessage.success('沟通记录更新成功')
+    } else {
+      // 新增模式
+      await api.post('/communications/', data)
+      ElMessage.success('沟通记录保存成功')
+    }
+    
     communicationDialogVisible.value = false
+    editingCommunication.value = null
     
     // 刷新当前房间数据和汇总信息
     await fetchRoomDetails(selectedRoomId.value)
@@ -634,7 +881,8 @@ const saveCommunication = async () => {
     }
   } catch (error) {
     console.error('保存沟通记录失败:', error)
-    ElMessage.error('保存沟通记录失败')
+    const action = editingCommunication.value ? '更新' : '保存'
+    ElMessage.error(`${action}沟通记录失败`)
   }
 }
 
@@ -693,12 +941,25 @@ const removeImage = () => {
 
 // 打开质量问题对话框
 const openQualityIssueDialog = () => {
+  editingQualityIssue.value = null
   // 设置默认录入时间为今天
   const today = new Date().toISOString().split('T')[0]
   qualityIssueForm.value = {
     description: '',
     issue_type: '',
     record_date: today,
+    images: []
+  }
+  qualityIssueDialogVisible.value = true
+}
+
+// 编辑质量问题
+const editQualityIssue = (issue) => {
+  editingQualityIssue.value = issue
+  qualityIssueForm.value = {
+    description: issue.description || '',
+    issue_type: issue.issue_type || '',
+    record_date: issue.record_date ? new Date(issue.record_date).toISOString().split('T')[0] : '',
     images: []
   }
   qualityIssueDialogVisible.value = true
@@ -717,7 +978,7 @@ const saveQualityIssue = async () => {
   }
   
   if (!qualityIssueForm.value.record_date) {
-    ElMessage.error('请选择录入时间')
+    ElMessage.error('请选择完成时间')
     return
   }
   
@@ -726,16 +987,25 @@ const saveQualityIssue = async () => {
     const recordDate = qualityIssueForm.value.record_date ? 
       new Date(qualityIssueForm.value.record_date + 'T00:00:00').toISOString() : null
     
-    await api.post('/quality-issues/', {
+    const data = {
       room_id: selectedRoomId.value,
       description: qualityIssueForm.value.description,
       issue_type: qualityIssueForm.value.issue_type,
       record_date: recordDate,
-      // 这里需要处理图片上传，暂时先不上传图片
-    })
+    }
     
-    ElMessage.success('质量问题记录成功')
+    if (editingQualityIssue.value) {
+      // 编辑模式
+      await api.put(`/quality-issues/${editingQualityIssue.value.id}`, data)
+      ElMessage.success('质量问题更新成功')
+    } else {
+      // 新增模式
+      await api.post('/quality-issues/', data)
+      ElMessage.success('质量问题记录成功')
+    }
+    
     qualityIssueDialogVisible.value = false
+    editingQualityIssue.value = null
     
     // 刷新当前房间数据和汇总信息
     await fetchRoomDetails(selectedRoomId.value)
@@ -747,7 +1017,19 @@ const saveQualityIssue = async () => {
     }
   } catch (error) {
     console.error('保存质量问题失败:', error)
-    ElMessage.error('保存质量问题失败')
+    const action = editingQualityIssue.value ? '更新' : '保存'
+    ElMessage.error(`${action}质量问题失败`)
+  }
+}
+
+// 重置质量问题表单
+const resetQualityIssueForm = () => {
+  const today = new Date().toISOString().split('T')[0]
+  qualityIssueForm.value = {
+    description: '',
+    issue_type: '',
+    record_date: today,
+    images: []
   }
 }
 
@@ -961,6 +1243,148 @@ const updatePreLeakage = async (newStatus) => {
   }
 }
 
+// 更新预计交付时间
+const updateExpectedDeliveryDate = async (newDate) => {
+  try {
+    await api.put(`/rooms/${selectedRoomId.value}/expected-delivery-date`, null, {
+      params: { expected_delivery_date: newDate }
+    })
+    ElMessage.success('预计交付时间更新成功')
+    // 更新本地状态
+    if (currentRoom.value) {
+      currentRoom.value.expected_delivery_date = newDate
+    }
+    // 更新房间列表中的状态
+    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
+    if (roomIndex !== -1) {
+      assignedRooms.value[roomIndex].expected_delivery_date = newDate
+    }
+  } catch (error) {
+    console.error('更新预计交付时间失败:', error)
+    ElMessage.error('更新预计交付时间失败')
+    // 恢复原状态
+    if (currentRoom.value) {
+      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
+      if (originalRoom) {
+        currentRoom.value.expected_delivery_date = originalRoom.expected_delivery_date
+      }
+    }
+  }
+}
+
+// 客户信息相关方法
+const getCustomerLevelType = (level) => {
+  const typeMap = {
+    'A': 'success',
+    'B': 'warning', 
+    'C': 'danger'
+  }
+  return typeMap[level] || 'info'
+}
+
+const formatIdCard = (idCard) => {
+  if (!idCard) return ''
+  // 隐藏身份证号中间部分，只显示前4位和后4位
+  return idCard.slice(0, 4) + '**********' + idCard.slice(-4)
+}
+
+const openCustomerDialog = (customer = null) => {
+  if (customer) {
+    // 编辑模式
+    customerForm.value = {
+      name: customer.name,
+      gender: customer.gender,
+      id_card: customer.id_card,
+      phone: customer.phone,
+      customer_level: customer.customer_level,
+      work_unit: customer.work_unit || ''
+    }
+  } else {
+    // 新建模式
+    customerForm.value = {
+      name: '',
+      gender: '',
+      id_card: '',
+      phone: '',
+      customer_level: '',
+      work_unit: ''
+    }
+  }
+  customerDialogVisible.value = true
+}
+
+const saveCustomer = async () => {
+  // 使用表单验证
+  if (!customerFormRef.value) return
+  
+  try {
+    // 验证表单
+    await customerFormRef.value.validate()
+    
+    if (currentCustomer.value) {
+      // 更新客户信息
+      await api.put(`/customers/${currentCustomer.value.id}`, customerForm.value)
+      ElMessage.success('客户信息更新成功')
+    } else {
+      // 创建客户信息
+      await api.post('/customers/', {
+        ...customerForm.value,
+        room_id: selectedRoomId.value
+      })
+      ElMessage.success('客户信息录入成功')
+    }
+    
+    customerDialogVisible.value = false
+    // 重置表单
+    if (customerFormRef.value) {
+      customerFormRef.value.resetFields()
+    }
+    // 刷新客户信息
+    await fetchRoomDetails(selectedRoomId.value)
+  } catch (validationError) {
+    // 如果是表单验证错误，不显示错误消息（Element Plus会自动显示）
+    if (validationError && typeof validationError === 'object' && validationError.response) {
+      // 这是API错误
+      console.error('保存客户信息失败:', validationError)
+      const errorMsg = validationError.response?.data?.detail || '保存客户信息失败'
+      ElMessage.error(errorMsg)
+    }
+    // 否则是表单验证失败，Element Plus已经显示了验证消息
+  }
+}
+
+const closeCustomerDialog = () => {
+  customerDialogVisible.value = false
+  // 重置表单
+  if (customerFormRef.value) {
+    customerFormRef.value.resetFields()
+  }
+}
+
+const deleteCustomerInfo = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确认删除此客户信息吗？删除后无法恢复。',
+      '删除确认',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    await api.delete(`/customers/${currentCustomer.value.id}`)
+    ElMessage.success('客户信息删除成功')
+    
+    currentCustomer.value = null
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除客户信息失败:', error)
+      ElMessage.error('删除客户信息失败')
+    }
+  }
+}
+
 onMounted(() => {
   console.log('客户大使界面加载，当前用户:', authStore.user)
   console.log('用户角色:', authStore.user?.role)
@@ -1012,6 +1436,77 @@ onMounted(() => {
 .room-selector {
   margin-bottom: 24px;
   text-align: center;
+}
+
+.customer-info-card {
+  margin-bottom: 24px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 16px;
+  color: #303133;
+}
+
+.header-actions .customer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.no-customer {
+  text-align: center;
+  padding: 20px;
+}
+
+.customer-details {
+  padding: 16px 0;
+}
+
+.customer-info-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.customer-info-row:last-child {
+  margin-bottom: 0;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.info-item.full-width {
+  flex: 1;
+  min-width: 100%;
+}
+
+.info-label {
+  color: #606266;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.info-value {
+  color: #303133;
+  font-size: 14px;
+  font-weight: 400;
+  word-break: break-all;
 }
 
 .current-room-info {
@@ -1255,6 +1750,21 @@ onMounted(() => {
   
   .control-group {
     justify-content: space-between;
+  }
+
+  .customer-info-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .info-item {
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .info-item:last-child {
+    border-bottom: none;
   }
 }
 </style>

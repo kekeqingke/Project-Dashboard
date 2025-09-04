@@ -5,7 +5,7 @@
         <el-icon><ArrowLeft /></el-icon>
         返回
       </el-button>
-      <h3>{{ roomInfo?.building_unit }} {{ roomInfo?.room_number }}号房</h3>
+      <h3 class="room-title">{{ roomInfo?.building_unit }} {{ roomInfo?.room_number }}号房</h3>
       <div class="status">
         <el-tag :type="getStatusType(roomInfo?.status)">{{ roomInfo?.status }}</el-tag>
       </div>
@@ -61,7 +61,7 @@
         
         <el-table :data="communications">
           <el-table-column prop="content" label="沟通内容" />
-          <el-table-column label="收房意愿" width="100">
+          <el-table-column label="核心诉求" width="100">
             <template #default="scope">
               <el-tag 
                 v-if="scope.row.feedback" 
@@ -99,6 +99,42 @@
             </template>
           </el-table-column>
         </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="客户信息" name="customer">
+        <div class="customer-info-container" v-if="customerInfo">
+          <div class="customer-info-grid">
+            <div class="info-item">
+              <label>姓名：</label>
+              <span>{{ customerInfo.name }}</span>
+            </div>
+            <div class="info-item">
+              <label>性别：</label>
+              <span>{{ customerInfo.gender }}</span>
+            </div>
+            <div class="info-item">
+              <label>客户分级：</label>
+              <el-tag :type="getCustomerLevelType(customerInfo.customer_level)" size="small">
+                {{ customerInfo.customer_level }}
+              </el-tag>
+            </div>
+            <div class="info-item">
+              <label>身份证号：</label>
+              <span>{{ customerInfo.id_card }}</span>
+            </div>
+            <div class="info-item">
+              <label>手机号：</label>
+              <span>{{ customerInfo.phone }}</span>
+            </div>
+            <div class="info-item">
+              <label>工作单位：</label>
+              <span>{{ customerInfo.work_unit || '-' }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="no-customer-info">
+          <el-empty description="暂无客户信息" />
+        </div>
       </el-tab-pane>
     </el-tabs>
 
@@ -166,7 +202,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { roomAPI, qualityIssueAPI, communicationAPI } from '../api'
+import { roomAPI, qualityIssueAPI, communicationAPI, customerAPI } from '../api/index.js'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus } from '@element-plus/icons-vue'
 
@@ -178,6 +214,7 @@ const activeTab = ref('issues')
 const roomInfo = ref(null)
 const qualityIssues = ref([])
 const communications = ref([])
+const customerInfo = ref(null)
 
 const showAddIssueDialog = ref(false)
 const showAddCommDialog = ref(false)
@@ -202,17 +239,34 @@ const fetchRoomData = async () => {
   loading.value = true
   try {
     const roomId = route.params.id
-    const [roomsRes, issuesRes, commsRes] = await Promise.all([
+    const promises = [
       roomAPI.getRooms(),
       qualityIssueAPI.getQualityIssues(roomId),
       communicationAPI.getCommunications(roomId)
-    ])
+    ]
+    
+    // 只有管理员和客户大使可以看到客户信息标签
+    if (authStore.user?.role === 'admin' || authStore.user?.role === 'customer_ambassador') {
+      promises.push(customerAPI.getCustomerByRoom(roomId))
+    }
+    
+    const responses = await Promise.all(promises)
+    const [roomsRes, issuesRes, commsRes, customerRes] = responses
     
     roomInfo.value = roomsRes.data.find(r => r.id == roomId)
     qualityIssues.value = issuesRes.data
     communications.value = commsRes.data
+    
+    if (customerRes) {
+      customerInfo.value = customerRes.data
+    }
   } catch (error) {
-    ElMessage.error('获取房间数据失败')
+    if (error.response?.status === 404 && error.config?.url?.includes('/customers/room/')) {
+      // 客户信息不存在，这是正常情况
+      customerInfo.value = null
+    } else {
+      ElMessage.error('获取房间数据失败')
+    }
   } finally {
     loading.value = false
   }
@@ -319,6 +373,15 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString('zh-CN')
 }
 
+const getCustomerLevelType = (level) => {
+  const levelMap = {
+    'A': 'success',
+    'B': 'warning', 
+    'C': 'danger'
+  }
+  return levelMap[level] || 'info'
+}
+
 onMounted(() => {
   fetchRoomData()
 })
@@ -336,6 +399,17 @@ onMounted(() => {
   margin-bottom: 20px;
   padding-bottom: 15px;
   border-bottom: 1px solid #ebeef5;
+}
+
+.room-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .tab-header {
@@ -388,5 +462,43 @@ onMounted(() => {
 .no-description {
   color: #c0c4cc;
   font-size: 12px;
+}
+
+.customer-info-container {
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+
+.customer-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.info-item label {
+  font-weight: 600;
+  color: #606266;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.info-item span {
+  color: #303133;
+  word-break: break-word;
+}
+
+.no-customer-info {
+  padding: 40px 0;
 }
 </style>

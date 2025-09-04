@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -31,6 +31,7 @@ class Room(Base):
     contract_status = Column(String, default="待签约")  # 待签约, 已签约
     letter_status = Column(String, default="无")  # 无, ZX, SX
     pre_leakage = Column(String, default="无")  # 无, 有
+    expected_delivery_date = Column(Date, nullable=True)  # 预计交付时间
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
@@ -38,6 +39,7 @@ class Room(Base):
     user_assignments = relationship("UserRoom", back_populates="room")
     quality_issues = relationship("QualityIssue", back_populates="room")
     communications = relationship("Communication", back_populates="room")
+    customer = relationship("Customer", back_populates="room", uselist=False)
 
 class UserRoom(Base):
     __tablename__ = "user_rooms"
@@ -88,3 +90,20 @@ class Communication(Base):
     # 关系
     room = relationship("Room", back_populates="communications")
     user = relationship("User", back_populates="communications")
+
+class Customer(Base):
+    __tablename__ = "customers"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id"), unique=True)  # 一对一关系
+    name = Column(String, nullable=False)  # 客户姓名
+    gender = Column(String, nullable=False)  # 性别：男/女
+    id_card = Column(String(18), nullable=False, unique=True)  # 身份证号
+    phone = Column(String(11), nullable=False)  # 手机号
+    customer_level = Column(String, nullable=False)  # 客户分级：A/B/C
+    work_unit = Column(String, nullable=True)  # 工作单位（选填）
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # 关系
+    room = relationship("Room", back_populates="customer", uselist=False)

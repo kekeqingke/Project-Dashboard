@@ -182,13 +182,28 @@ def accept_quality_issue(issue_id: int, db: Session = Depends(get_db),
 @app.put("/quality-issues/{issue_id}", response_model=schemas.QualityIssue)
 def update_quality_issue(issue_id: int, issue_update: dict, db: Session = Depends(get_db),
                         current_user: models.User = Depends(auth.get_current_user)):
+    # 处理验收操作
     if issue_update.get("is_verified"):
         result = crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
         if not result:
             raise HTTPException(status_code=404, detail="质量问题未找到")
         return result
-    else:
-        raise HTTPException(status_code=400, detail="不支持的更新操作")
+    
+    # 处理其他字段的更新
+    # 从dict转换为QualityIssueUpdate对象
+    try:
+        update_data = schemas.QualityIssueUpdate(**issue_update)
+        result = crud.update_quality_issue(
+            db=db, 
+            issue_id=issue_id, 
+            issue_update=update_data,
+            user_id=current_user.id if current_user.role != "admin" else None
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="质量问题未找到或无权限访问")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"更新失败: {str(e)}")
 
 # 客户沟通管理接口
 @app.get("/communications/", response_model=List[schemas.Communication])
@@ -316,6 +331,37 @@ async def update_room_pre_leakage(
     
     return {"message": "前期渗漏状态更新成功", "pre_leakage": pre_leakage}
 
+@app.put("/rooms/{room_id}/expected-delivery-date")
+async def update_room_expected_delivery_date(
+    room_id: int,
+    expected_delivery_date: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    # 只有管理员和客户大使可以更新房间状态
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 解析日期字符串
+    from datetime import datetime
+    try:
+        if expected_delivery_date:
+            parsed_date = datetime.strptime(expected_delivery_date, '%Y-%m-%d').date()
+            room.expected_delivery_date = parsed_date
+        else:
+            room.expected_delivery_date = None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式不正确，应为YYYY-MM-DD")
+    
+    db.commit()
+    db.refresh(room)
+    
+    return {"message": "预计交付时间更新成功", "expected_delivery_date": expected_delivery_date}
+
 # 文件上传接口
 @app.post("/upload-image/")
 async def upload_image(file: UploadFile = File(...), 
@@ -342,6 +388,107 @@ def get_summary(building_unit: str = None, db: Session = Depends(get_db),
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="权限不足")
     return crud.get_room_summary(db, building_unit)
+
+# 客户信息相关接口
+@app.get("/customers/room/{room_id}", response_model=schemas.Customer)
+def get_customer_by_room(room_id: int, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    """根据房间ID获取客户信息"""
+    # 只有管理员和客户大使可以查看客户信息
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    customer = crud.get_customer_by_room_id(db, room_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="该房间暂无客户信息")
+    
+    return customer
+
+@app.post("/customers/", response_model=schemas.Customer)
+def create_customer(customer: schemas.CustomerCreate, db: Session = Depends(get_db),
+                   current_user: models.User = Depends(auth.get_current_user)):
+    """创建客户信息"""
+    # 只有管理员和客户大使可以创建客户信息
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    # 检查房间是否存在
+    room = db.query(models.Room).filter(models.Room.id == customer.room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 检查该房间是否已有客户信息
+    existing_customer = crud.get_customer_by_room_id(db, customer.room_id)
+    if existing_customer:
+        raise HTTPException(status_code=400, detail="该房间已有客户信息，请使用更新功能")
+    
+    # 检查身份证号是否已存在
+    if crud.check_id_card_exists(db, customer.id_card):
+        raise HTTPException(status_code=400, detail="该身份证号已存在")
+    
+    return crud.create_customer(db=db, customer=customer)
+
+@app.put("/customers/{customer_id}", response_model=schemas.Customer)
+def update_customer(customer_id: int, customer: schemas.CustomerUpdate, 
+                   db: Session = Depends(get_db),
+                   current_user: models.User = Depends(auth.get_current_user)):
+    """更新客户信息"""
+    # 只有管理员和客户大使可以更新客户信息
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    # 检查客户是否存在
+    existing_customer = crud.get_customer(db, customer_id)
+    if not existing_customer:
+        raise HTTPException(status_code=404, detail="客户信息不存在")
+    
+    # 检查身份证号是否已被其他客户使用
+    if customer.id_card and crud.check_id_card_exists(db, customer.id_card, customer_id):
+        raise HTTPException(status_code=400, detail="该身份证号已被其他客户使用")
+    
+    updated_customer = crud.update_customer(db=db, customer_id=customer_id, customer=customer)
+    if not updated_customer:
+        raise HTTPException(status_code=404, detail="更新失败")
+    
+    return updated_customer
+
+@app.delete("/customers/{customer_id}")
+def delete_customer(customer_id: int, db: Session = Depends(get_db),
+                   current_user: models.User = Depends(auth.get_current_user)):
+    """删除客户信息"""
+    # 只有管理员和客户大使可以删除客户信息
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    success = crud.delete_customer(db=db, customer_id=customer_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="客户信息不存在")
+    
+    return {"message": "客户信息删除成功"}
+
+# 清空房间内容接口
+@app.delete("/admin/rooms/{room_id}/clear-content")
+def clear_room_content(room_id: int, db: Session = Depends(get_db),
+                      current_user: models.User = Depends(auth.get_current_user)):
+    """清空指定房间的内容数据，保留用户分配和房号"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
+    
+    result = crud.clear_room_content(db=db, room_id=room_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    return result
+
+@app.delete("/admin/rooms/clear-all-content")
+def clear_all_rooms_content(db: Session = Depends(get_db),
+                           current_user: models.User = Depends(auth.get_current_user)):
+    """清空所有房间的内容数据，保留用户分配和房号"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
+    
+    result = crud.clear_all_rooms_content(db=db)
+    return result
 
 if __name__ == "__main__":
     import uvicorn

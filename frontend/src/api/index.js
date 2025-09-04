@@ -71,4 +71,11 @@ export const adminAPI = {
   getSummary: (buildingUnit) => api.get('/admin/summary', { params: { building_unit: buildingUnit } })
 }
 
+export const customerAPI = {
+  getCustomerByRoom: (roomId) => api.get(`/customers/room/${roomId}`),
+  createCustomer: (customerData) => api.post('/customers/', customerData),
+  updateCustomer: (customerId, customerData) => api.put(`/customers/${customerId}`, customerData),
+  deleteCustomer: (customerId) => api.delete(`/customers/${customerId}`)
+}
+
 export default api
