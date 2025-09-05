@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Q
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 import models, schemas, crud
 from database import SessionLocal, engine, get_db
@@ -141,12 +141,13 @@ def delete_room(room_id: int, db: Session = Depends(get_db),
 @app.get("/rooms/{room_id}/export-pdf")
 def export_room_pdf(room_id: int, db: Session = Depends(get_db),
                     current_user: models.User = Depends(auth.get_current_user)):
-    # 检查房间访问权限
-    room = crud.get_room_by_id(db=db, room_id=room_id, user_id=current_user.id if current_user.role != "admin" else None)
-    if not room:
-        raise HTTPException(status_code=404, detail="房间不存在或无权限访问")
-    
+    """导出房间沟通记录PDF"""
     try:
+        # 检查房间访问权限
+        room = crud.get_room_by_id(db=db, room_id=room_id, user_id=current_user.id if current_user.role != "admin" else None)
+        if not room:
+            raise HTTPException(status_code=404, detail="房间不存在或无权限访问")
+        
         # 获取房间相关数据
         room_dict = {
             'building_unit': room.building_unit,
@@ -171,7 +172,7 @@ def export_room_pdf(room_id: int, db: Session = Depends(get_db),
             pass
         
         # 获取沟通记录
-        communications = crud.get_communications_by_room_id(db, room_id)
+        communications = crud.get_communications(db, room_id)
         comm_list = []
         latest_customer_description = ""
         
@@ -185,12 +186,11 @@ def export_room_pdf(room_id: int, db: Session = Depends(get_db),
             }
             comm_list.append(comm_dict)
             
-            # 获取最新的客户描摹
             if comm.customer_description and not latest_customer_description:
                 latest_customer_description = comm.customer_description
         
         # 获取质量问题
-        quality_issues = crud.get_quality_issues_by_room_id(db, room_id)
+        quality_issues = crud.get_quality_issues(db, room_id)
         issue_list = []
         for issue in quality_issues:
             issue_dict = {
@@ -221,13 +221,32 @@ def export_room_pdf(room_id: int, db: Session = Depends(get_db),
             latest_customer_description=latest_customer_description
         )
         
-        # 返回PDF文件
-        filename = f"瑧湾悦二期-{room.building_unit}-{room.room_number}-沟通记录.pdf"
+        # 创建临时文件并返回
+        import tempfile
+        import os
+        from fastapi.responses import FileResponse
+        from urllib.parse import quote
         
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            temp_file.write(pdf_bytes)
+            temp_file_path = temp_file.name
+        
+        # 生成友好的中文文件名
+        chinese_filename = f"瑧湾悦二期-{room.building_unit}-{room.room_number}-沟通记录.pdf"
+        encoded_filename = quote(chinese_filename.encode('utf-8'))
+        
+        # 清理临时文件的后台任务
+        import atexit
+        atexit.register(lambda: os.unlink(temp_file_path) if os.path.exists(temp_file_path) else None)
+        
+        return FileResponse(
+            path=temp_file_path,
+            filename=f"ZWY-{room.building_unit.replace('单元', '')}-{room.room_number}.pdf",
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
         )
         
     except Exception as e:

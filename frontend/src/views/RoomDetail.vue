@@ -5,7 +5,8 @@
         <el-icon><ArrowLeft /></el-icon>
         返回
       </el-button>
-      <h3 class="room-title">{{ roomInfo?.building_unit }} {{ roomInfo?.room_number }}号房</h3>
+      <h3 class="room-title" v-if="roomInfo">{{ roomInfo.building_unit }} {{ roomInfo.room_number }}号房</h3>
+      <h3 class="room-title loading-title" v-else>加载中...</h3>
       <div class="header-actions">
         <el-button type="primary" @click="downloadPDF" :loading="pdfLoading">
           <el-icon><Download /></el-icon>
@@ -203,7 +204,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { roomAPI, qualityIssueAPI, communicationAPI, customerAPI } from '../api/index.js'
@@ -241,11 +242,24 @@ const canAddIssue = computed(() => {
 })
 
 const fetchRoomData = async () => {
+  const roomId = route.params.id
+  if (!roomId) {
+    ElMessage.error('房间ID无效')
+    return
+  }
+  
   loading.value = true
   try {
-    const roomId = route.params.id
+    // 首先获取房间基本信息
+    const roomResponse = await roomAPI.getRooms()
+    roomInfo.value = roomResponse.data.find(r => r.id == roomId)
+    
+    if (!roomInfo.value) {
+      throw new Error('房间不存在')
+    }
+    
+    // 然后并行获取其他数据
     const promises = [
-      roomAPI.getRooms(),
       qualityIssueAPI.getQualityIssues(roomId),
       communicationAPI.getCommunications(roomId)
     ]
@@ -256,9 +270,8 @@ const fetchRoomData = async () => {
     }
     
     const responses = await Promise.all(promises)
-    const [roomsRes, issuesRes, commsRes, customerRes] = responses
+    const [issuesRes, commsRes, customerRes] = responses
     
-    roomInfo.value = roomsRes.data.find(r => r.id == roomId)
     qualityIssues.value = issuesRes.data
     communications.value = commsRes.data
     
@@ -270,7 +283,7 @@ const fetchRoomData = async () => {
       // 客户信息不存在，这是正常情况
       customerInfo.value = null
     } else {
-      ElMessage.error('获取房间数据失败')
+      ElMessage.error('获取房间数据失败: ' + (error.message || '未知错误'))
     }
   } finally {
     loading.value = false
@@ -424,6 +437,19 @@ const downloadPDF = async () => {
 onMounted(() => {
   fetchRoomData()
 })
+
+// 监听路由变化，处理同一组件内路由参数变化的情况
+watch(() => route.params.id, (newId, oldId) => {
+  if (newId && newId !== oldId) {
+    // 重置数据
+    roomInfo.value = null
+    qualityIssues.value = []
+    communications.value = []
+    customerInfo.value = null
+    // 重新获取数据
+    fetchRoomData()
+  }
+}, { immediate: false })
 </script>
 
 <style scoped>
@@ -546,5 +572,10 @@ onMounted(() => {
 
 .no-customer-info {
   padding: 40px 0;
+}
+
+.loading-title {
+  color: #909399;
+  font-style: italic;
 }
 </style>

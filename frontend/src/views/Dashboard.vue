@@ -30,15 +30,14 @@
           </el-menu-item>
           
           <!-- 管理员菜单 -->
-          <el-menu-item v-if="authStore.isAdmin" index="/rooms">
-            <el-icon><House /></el-icon>
-            <span>房间管理</span>
-          </el-menu-item>
-          
-          <!-- 仅管理员可见 -->
           <el-menu-item v-if="authStore.isAdmin" index="/admin/users">
             <el-icon><User /></el-icon>
             <span>用户管理</span>
+          </el-menu-item>
+          
+          <el-menu-item v-if="authStore.isAdmin" index="/rooms">
+            <el-icon><House /></el-icon>
+            <span>房间管理</span>
           </el-menu-item>
           
           <el-menu-item v-if="authStore.isAdmin" index="/admin/summary">
@@ -76,7 +75,7 @@ onMounted(() => {
     } else if (authStore.isEngineer) {
       router.push('/engineer')
     } else if (authStore.isAdmin) {
-      router.push('/rooms')
+      router.push('/admin/users')
     }
   }
 })

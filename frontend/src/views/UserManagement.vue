@@ -30,44 +30,39 @@
           {{ getUserRoomCount(scope.row.id) }}
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="150">
+      <el-table-column label="操作" width="400">
         <template #default="scope">
-          {{ formatDate(scope.row.created_at) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="300">
-        <template #default="scope">
-          <el-button 
-            type="info" 
-            size="small"
-            @click="showUserRooms(scope.row)"
-            style="margin-right: 5px"
-          >
-            房间
-          </el-button>
-          <el-button 
-            type="primary" 
-            size="small"
-            @click="showAssignDialog(scope.row)"
-            style="margin-right: 5px"
-          >
-            分配
-          </el-button>
-          <el-button 
-            type="warning" 
-            size="small"
-            @click="resetPassword(scope.row)"
-            style="margin-right: 5px"
-          >
-            重置
-          </el-button>
-          <el-button 
-            type="danger" 
-            size="small"
-            @click="deleteUser(scope.row)"
-          >
-            删除
-          </el-button>
+          <div class="action-buttons">
+            <el-button 
+              type="info" 
+              size="small"
+              @click="showUserRooms(scope.row)"
+            >
+              查看房间
+            </el-button>
+            <el-button 
+              type="primary" 
+              size="small"
+              @click="showAssignDialog(scope.row)"
+            >
+              分配房间
+            </el-button>
+            <el-button 
+              type="warning" 
+              size="small"
+              @click="resetPassword(scope.row)"
+            >
+              重置密码
+            </el-button>
+            <el-button 
+              type="danger" 
+              size="small"
+              @click="deleteUser(scope.row)"
+              class="delete-button"
+            >
+              删除用户
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -149,18 +144,6 @@
       <el-table :data="userAssignedRooms" style="width: 100%">
         <el-table-column prop="building_unit" label="楼栋" width="120" />
         <el-table-column prop="room_number" label="房间号" width="120" />
-        <el-table-column prop="status" label="状态" width="120">
-          <template #default="scope">
-            <el-tag :type="getStatusType(scope.row.status)">
-              {{ scope.row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="分配时间" width="180">
-          <template #default="scope">
-            {{ formatDate(scope.row.assignment_created_at) }}
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="120">
           <template #default="scope">
             <el-button 
@@ -441,5 +424,17 @@ onMounted(() => {
 .password-changed {
   color: #67c23a;
   font-style: italic;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 5px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.delete-button {
+  margin-left: 10px !important;
 }
 </style>

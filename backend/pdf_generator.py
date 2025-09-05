@@ -125,8 +125,8 @@ def create_room_communication_pdf(
         ['客户姓名', customer_info.get('name', '') if customer_info else '', '性别', customer_info.get('gender', '') if customer_info else ''],
         ['身份证号', customer_info.get('id_card', '') if customer_info else '', '手机号', customer_info.get('phone', '') if customer_info else ''],
         ['客户分级', customer_info.get('customer_level', '') if customer_info else '', '工作单位', customer_info.get('work_unit', '') if customer_info else ''],
-        ['维修工程师责任人', assigned_users.get('maintenance_engineer', ''), '客户大使责任人', assigned_users.get('customer_ambassador', '')],
-        ['客户高像描摹', latest_customer_description, '', '']
+        ['维修工程师', assigned_users.get('maintenance_engineer', ''), '客户大使', assigned_users.get('customer_ambassador', '')],
+        ['客户描摹', latest_customer_description, '', '']
     ]
     
     basic_info_table = Table(basic_info_data, colWidths=[4*cm, 6*cm, 2.5*cm, 4*cm])
