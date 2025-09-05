@@ -431,10 +431,10 @@
           <div v-if="communicationForm.image" class="image-preview-container">
             <div class="image-wrapper">
               <el-image
-                :src="`http://localhost:8000/uploads/${communicationForm.image}`"
+                :src="`/api/uploads/${communicationForm.image}`"
                 style="width: 120px; height: 90px"
                 fit="cover"
-                :preview-src-list="[`http://localhost:8000/uploads/${communicationForm.image}`]"
+                :preview-src-list="[`/api/uploads/${communicationForm.image}`]"
                 class="preview-image"
               />
             </div>

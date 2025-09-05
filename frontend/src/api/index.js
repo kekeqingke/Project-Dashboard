@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // 创建axios实例
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: '/api',
   timeout: 60000
 })
 
@@ -53,7 +53,10 @@ export const userAPI = {
 
 export const roomAPI = {
   getRooms: () => api.get('/rooms/'),
-  createRoom: (roomData) => api.post('/rooms/', roomData)
+  createRoom: (roomData) => api.post('/rooms/', roomData),
+  exportPdf: (roomId) => api.get(`/rooms/${roomId}/export-pdf`, { 
+    responseType: 'blob' 
+  })
 }
 
 export const qualityIssueAPI = {

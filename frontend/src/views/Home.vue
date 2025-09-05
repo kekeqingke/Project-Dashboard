@@ -47,7 +47,7 @@
       <div class="api-section">
         <h3>🔗 系统链接</h3>
         <div class="links">
-          <a href="http://localhost:8000/docs" target="_blank" class="api-link">
+          <a href="/api/docs" target="_blank" class="api-link">
             📚 后端API文档
           </a>
           <span class="current-link">

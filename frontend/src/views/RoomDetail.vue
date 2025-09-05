@@ -6,7 +6,11 @@
         返回
       </el-button>
       <h3 class="room-title">{{ roomInfo?.building_unit }} {{ roomInfo?.room_number }}号房</h3>
-      <div class="status">
+      <div class="header-actions">
+        <el-button type="primary" @click="downloadPDF" :loading="pdfLoading">
+          <el-icon><Download /></el-icon>
+          下载PDF
+        </el-button>
         <el-tag :type="getStatusType(roomInfo?.status)">{{ roomInfo?.status }}</el-tag>
       </div>
     </div>
@@ -83,10 +87,10 @@
             <template #default="scope">
               <span v-if="scope.row.image">
                 <el-image
-                  :src="`http://localhost:8000/uploads/${scope.row.image}`"
+                  :src="`/api/uploads/${scope.row.image}`"
                   style="width: 60px; height: 60px"
                   fit="cover"
-                  :preview-src-list="[`http://localhost:8000/uploads/${scope.row.image}`]"
+                  :preview-src-list="[`/api/uploads/${scope.row.image}`]"
                   class="comm-image"
                 />
               </span>
@@ -204,12 +208,13 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { roomAPI, qualityIssueAPI, communicationAPI, customerAPI } from '../api/index.js'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Plus } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, Download } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
 const loading = ref(false)
 const activeTab = ref('issues')
+const pdfLoading = ref(false)
 
 const roomInfo = ref(null)
 const qualityIssues = ref([])
@@ -382,6 +387,40 @@ const getCustomerLevelType = (level) => {
   return levelMap[level] || 'info'
 }
 
+const downloadPDF = async () => {
+  pdfLoading.value = true
+  try {
+    const response = await roomAPI.exportPdf(route.params.id)
+    
+    // 创建下载链接
+    const url = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    
+    // 从响应头获取文件名，如果没有则使用默认名称
+    let filename = `瑧湾悦二期-${roomInfo.value?.building_unit}-${roomInfo.value?.room_number}-沟通记录.pdf`
+    const contentDisposition = response.headers['content-disposition']
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename=(.+)/)
+      if (filenameMatch) {
+        filename = filenameMatch[1].replace(/"/g, '')
+      }
+    }
+    
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    ElMessage.success('PDF下载成功')
+  } catch (error) {
+    ElMessage.error('PDF下载失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    pdfLoading.value = false
+  }
+}
+
 onMounted(() => {
   fetchRoomData()
 })
@@ -399,6 +438,13 @@ onMounted(() => {
   margin-bottom: 20px;
   padding-bottom: 15px;
   border-bottom: 1px solid #ebeef5;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
 }
 
 .room-title {
