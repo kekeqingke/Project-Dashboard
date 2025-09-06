@@ -179,3 +179,20 @@ logs/
 # 配置文件（如包含敏感信息）
 config.json
 secrets.json
+
+# 项目特定的临时文件
+deploy.py
+start_dev.py
+start-frontend.bat
+add_expected_delivery_date.py
+clean_test_data.py
+create_ambassador_user.py
+verify_api.py
+
+# 上传的图片和文件
+uploads/
+backend/uploads/
+
+# 截图和临时图片
+PixPin_*.png
+Screenshot*.png

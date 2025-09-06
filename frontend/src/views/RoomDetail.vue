@@ -52,59 +52,6 @@
         </el-table>
       </el-tab-pane>
 
-      <el-tab-pane label="客户沟通" name="communications">
-        <div class="tab-header">
-          <h4>客户沟通记录 ({{ communications.length }})</h4>
-          <el-button 
-            v-if="authStore.isCustomerAmbassador" 
-            type="primary"
-            @click="showAddCommDialog = true"
-          >
-            添加沟通记录
-          </el-button>
-        </div>
-        
-        <el-table :data="communications">
-          <el-table-column prop="content" label="沟通内容" />
-          <el-table-column label="核心诉求" width="100">
-            <template #default="scope">
-              <el-tag 
-                v-if="scope.row.feedback" 
-                :type="scope.row.feedback === '高' ? 'success' : 'danger'"
-                size="small"
-              >
-                {{ scope.row.feedback }}
-              </el-tag>
-              <span v-else class="no-feedback">-</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="customer_description" label="客户描摹" show-overflow-tooltip>
-            <template #default="scope">
-              <span v-if="scope.row.customer_description">{{ scope.row.customer_description }}</span>
-              <span v-else class="no-description">-</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="沟通图片" width="100">
-            <template #default="scope">
-              <span v-if="scope.row.image">
-                <el-image
-                  :src="`/api/uploads/${scope.row.image}`"
-                  style="width: 60px; height: 60px"
-                  fit="cover"
-                  :preview-src-list="[`/api/uploads/${scope.row.image}`]"
-                  class="comm-image"
-                />
-              </span>
-              <span v-else class="no-image">无图片</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="沟通时间" width="120">
-            <template #default="scope">
-              {{ scope.row.communication_time ? formatDate(scope.row.communication_time) : '-' }}
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
 
       <el-tab-pane label="客户信息" name="customer">
         <div class="customer-info-container" v-if="customerInfo">
@@ -175,31 +122,6 @@
       </template>
     </el-dialog>
 
-    <!-- 添加客户沟通对话框 -->
-    <el-dialog v-model="showAddCommDialog" title="添加沟通记录" width="600px">
-      <el-form :model="commForm" label-width="100px">
-        <el-form-item label="沟通内容" required>
-          <el-input 
-            v-model="commForm.content" 
-            type="textarea" 
-            rows="4"
-            placeholder="请输入沟通内容..."
-          />
-        </el-form-item>
-        <el-form-item label="客户反馈">
-          <el-input 
-            v-model="commForm.feedback" 
-            type="textarea" 
-            rows="3"
-            placeholder="请输入客户反馈..."
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAddCommDialog = false">取消</el-button>
-        <el-button type="primary" @click="submitComm">提交</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -207,7 +129,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { roomAPI, qualityIssueAPI, communicationAPI, customerAPI } from '../api/index.js'
+import { roomAPI, qualityIssueAPI, customerAPI } from '../api/index.js'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus, Download } from '@element-plus/icons-vue'
 
@@ -219,11 +141,9 @@ const pdfLoading = ref(false)
 
 const roomInfo = ref(null)
 const qualityIssues = ref([])
-const communications = ref([])
 const customerInfo = ref(null)
 
 const showAddIssueDialog = ref(false)
-const showAddCommDialog = ref(false)
 
 const issueForm = ref({
   description: '',
@@ -231,10 +151,6 @@ const issueForm = ref({
   uploadedImages: []
 })
 
-const commForm = ref({
-  content: '',
-  feedback: ''
-})
 
 const canAddIssue = computed(() => {
   const role = authStore.user?.role
@@ -260,8 +176,7 @@ const fetchRoomData = async () => {
     
     // 然后并行获取其他数据
     const promises = [
-      qualityIssueAPI.getQualityIssues(roomId),
-      communicationAPI.getCommunications(roomId)
+      qualityIssueAPI.getQualityIssues(roomId)
     ]
     
     // 只有管理员和客户大使可以看到客户信息标签
@@ -270,10 +185,9 @@ const fetchRoomData = async () => {
     }
     
     const responses = await Promise.all(promises)
-    const [issuesRes, commsRes, customerRes] = responses
+    const [issuesRes, customerRes] = responses
     
     qualityIssues.value = issuesRes.data
-    communications.value = commsRes.data
     
     if (customerRes) {
       customerInfo.value = customerRes.data
@@ -321,27 +235,6 @@ const submitIssue = async () => {
   }
 }
 
-const submitComm = async () => {
-  if (!commForm.value.content.trim()) {
-    ElMessage.warning('请输入沟通内容')
-    return
-  }
-  
-  try {
-    await communicationAPI.createCommunication({
-      room_id: parseInt(route.params.id),
-      content: commForm.value.content,
-      feedback: commForm.value.feedback
-    })
-    
-    ElMessage.success('沟通记录添加成功')
-    showAddCommDialog.value = false
-    commForm.value = { content: '', feedback: '' }
-    fetchRoomData()
-  } catch (error) {
-    ElMessage.error('添加沟通记录失败')
-  }
-}
 
 
 const getUserDisplayName = (record) => {
@@ -514,16 +407,7 @@ watch(() => route.params.id, (newId, oldId) => {
   transform: scale(1.1);
 }
 
-/* 沟通图片样式 */
-.comm-image {
-  border-radius: 6px;
-  border: 1px solid #e4e7ed;
-  cursor: pointer;
-}
 
-.comm-image:hover {
-  border-color: #409eff;
-}
 
 .no-image {
   color: #909399;

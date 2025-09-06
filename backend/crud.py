@@ -66,8 +66,7 @@ def delete_user(db: Session, user_id: int):
     # 删除用户的质量问题记录
     db.query(models.QualityIssue).filter(models.QualityIssue.user_id == user_id).delete()
     
-    # 删除用户的沟通记录
-    db.query(models.Communication).filter(models.Communication.user_id == user_id).delete()
+    # 沟通记录已删除，无需处理
     
     # 删除用户
     db.delete(user)
@@ -126,8 +125,7 @@ def delete_room(db: Session, room_id: int):
     # 删除房间的质量问题记录
     db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room_id).delete()
     
-    # 删除房间的沟通记录
-    db.query(models.Communication).filter(models.Communication.room_id == room_id).delete()
+    # 沟通记录已删除，无需处理
     
     # 删除房间
     db.delete(room)
@@ -251,51 +249,15 @@ def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.Quali
         return issue
     return None
 
-# Communication operations
-def get_communications(db: Session, room_id: Optional[int] = None, user_id: Optional[int] = None):
-    query = db.query(models.Communication).join(models.User, models.Communication.user_id == models.User.id)
-    if room_id:
-        query = query.filter(models.Communication.room_id == room_id)
-    if user_id:
-        # 只显示用户有权限的房间的沟通记录
-        query = query.join(models.UserRoom, models.Communication.room_id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id)
-    
-    # 按沟通时间降序排序，如果沟通时间为空则按创建时间降序排序
-    query = query.order_by(desc(func.coalesce(models.Communication.communication_time, models.Communication.created_at)))
-    
-    communications = query.all()
-    # 为每个沟通记录添加用户信息
-    for comm in communications:
-        comm.user_name = comm.user.name
-        comm.user_role = comm.user.role
-    
-    return communications
 
-def create_communication(db: Session, communication: schemas.CommunicationCreate, user_id: int):
-    db_comm = models.Communication(**communication.dict(), user_id=user_id)
-    db.add(db_comm)
-    db.commit()
-    db.refresh(db_comm)
-    return db_comm
-
-def update_communication(db: Session, communication_id: int, is_implemented: bool, user_id: Optional[int] = None):
-    """更新沟通记录的落实状态"""
-    query = db.query(models.Communication).filter(models.Communication.id == communication_id)
-    
-    # 如果提供了user_id，检查用户是否有权限访问该沟通记录
-    if user_id:
-        query = query.join(models.UserRoom, models.Communication.room_id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id)
-    
-    communication = query.first()
-    if communication:
-        communication.is_implemented = is_implemented
-        db.commit()
-        db.refresh(communication)
-        return communication
-    return None
 
 # Room status management
 def update_room_status(db: Session, room_id: int):
+    """
+    自动更新房间整改状态：
+    - 如果有待验收的质量问题，状态为"整改中"
+    - 如果所有质量问题都已验收，状态为"闭户"
+    """
     # 检查是否有未验收的质量问题
     pending_issues = db.query(models.QualityIssue).filter(
         models.QualityIssue.room_id == room_id,
@@ -307,8 +269,44 @@ def update_room_status(db: Session, room_id: int):
         if pending_issues > 0:
             room.status = "整改中"
         else:
-            room.status = "验收完成"
+            # 所有质量问题都已验收，自动设置为"闭户"
+            room.status = "闭户"
         db.commit()
+
+def update_room_ambassador_status(db: Session, room_id: int, status_data: dict):
+    """
+    客户大使更新房间状态（仅限特定字段）
+    允许更新：delivery_status, contract_status, letter_status, expected_delivery_date
+    不允许更新：status（整改状态由系统自动管理）
+    """
+    from datetime import datetime
+    
+    room = db.query(models.Room).filter(models.Room.id == room_id).first()
+    if not room:
+        return None
+    
+    # 只允许客户大使更新特定字段
+    allowed_fields = ['delivery_status', 'contract_status', 'letter_status', 'expected_delivery_date']
+    
+    for field, value in status_data.items():
+        if field in allowed_fields:
+            if field == 'expected_delivery_date' and value:
+                # 处理日期字符串转换
+                try:
+                    if isinstance(value, str):
+                        parsed_date = datetime.strptime(value, '%Y-%m-%d').date()
+                        setattr(room, field, parsed_date)
+                    else:
+                        setattr(room, field, value)
+                except ValueError:
+                    # 日期格式错误，跳过这个字段
+                    continue
+            elif value is not None:
+                setattr(room, field, value)
+    
+    db.commit()
+    db.refresh(room)
+    return room
 
 # Admin summary
 def get_room_summary(db: Session, building_unit: Optional[str] = None):
@@ -343,20 +341,7 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
         # 获取最新的待验收问题详情
         latest_pending_issue = pending_issues[0] if pending_issues else None
         
-        # 获取沟通记录统计和详情
-        pending_communications = db.query(models.Communication).filter(
-            models.Communication.room_id == room.id,
-            models.Communication.is_implemented == False
-        ).order_by(desc(func.coalesce(models.Communication.communication_time, models.Communication.created_at))).all()
-        
-        # 获取最新的待落实沟通记录详情
-        latest_pending_comm = pending_communications[0] if pending_communications else None
-        
-        # 获取最新的收房意愿（从所有沟通记录中获取最新的有feedback的记录）
-        latest_comm_with_feedback = db.query(models.Communication).filter(
-            models.Communication.room_id == room.id,
-            models.Communication.feedback.isnot(None)
-        ).order_by(desc(func.coalesce(models.Communication.communication_time, models.Communication.created_at))).first()
+        # 沟通记录相关功能已删除
         
         # 构建带聚合数据的房间对象
         room_summary = {
@@ -368,7 +353,6 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'delivery_status': room.delivery_status,
             'contract_status': room.contract_status,
             'letter_status': room.letter_status,  # 添加信件状态
-            'pre_leakage': room.pre_leakage,      # 添加前期渗漏
             'expected_delivery_date': room.expected_delivery_date,  # 添加预计交付时间
             'created_at': room.created_at,
             'updated_at': room.updated_at,
@@ -379,13 +363,11 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'latest_issue_type': latest_pending_issue.issue_type if latest_pending_issue else "",
             'latest_issue_record_date': latest_pending_issue.record_date if latest_pending_issue else None,
             
-            # 聚合的沟通记录信息
-            'pending_communications_count': len(pending_communications),
-            'latest_comm_content': latest_pending_comm.content if latest_pending_comm else "",
-            'latest_comm_time': latest_pending_comm.communication_time if latest_pending_comm else None,
-            
-            # 最新反馈
-            'latest_feedback': latest_comm_with_feedback.feedback if latest_comm_with_feedback else ""
+            # 沟通记录功能已删除，保留字段结构
+            'pending_communications_count': 0,
+            'latest_comm_content': "",
+            'latest_comm_time': None,
+            'latest_feedback': ""
         }
         
         rooms_with_summary.append(room_summary)
@@ -417,15 +399,14 @@ def clear_room_content(db: Session, room_id: int):
     # 删除房间的质量问题记录
     deleted_issues = db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room_id).delete()
     
-    # 删除房间的沟通记录
-    deleted_communications = db.query(models.Communication).filter(models.Communication.room_id == room_id).delete()
+    # 沟通记录已删除，无需处理
+    deleted_communications = 0
     
     # 重置房间状态为初始值
     room.status = "整改中"
     room.delivery_status = "待交付"
     room.contract_status = "待签约"
     room.letter_status = "无"
-    room.pre_leakage = "无"
     
     db.commit()
     
@@ -454,8 +435,8 @@ def clear_all_rooms_content(db: Session):
         deleted_issues = db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room.id).delete()
         total_deleted_issues += deleted_issues
         
-        # 删除沟通记录
-        deleted_communications = db.query(models.Communication).filter(models.Communication.room_id == room.id).delete()
+        # 沟通记录已删除，无需处理
+        deleted_communications = 0
         total_deleted_communications += deleted_communications
         
         # 重置房间状态
@@ -463,7 +444,6 @@ def clear_all_rooms_content(db: Session):
         room.delivery_status = "待交付"
         room.contract_status = "待签约"
         room.letter_status = "无"
-        room.pre_leakage = "无"
         
         cleared_rooms.append(f"{room.building_unit}-{room.room_number}")
     

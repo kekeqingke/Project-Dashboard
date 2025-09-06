@@ -40,11 +40,6 @@
           <span>{{ getRoomIssueCount(scope.row.id) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="沟通记录" width="120">
-        <template #default="scope">
-          <span>{{ getRoomCommCount(scope.row.id) }}</span>
-        </template>
-      </el-table-column>
       <el-table-column label="客户大使" width="120">
         <template #default="scope">
           <div class="user-cell">
@@ -106,14 +101,13 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { roomAPI, qualityIssueAPI, communicationAPI } from '../api'
+import { roomAPI, qualityIssueAPI } from '../api'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const loading = ref(false)
 const rooms = ref([])
 const qualityIssues = ref([])
-const communications = ref([])
 const selectedBuilding = ref('3单元')  // 默认选择3单元
 const selectedStatus = ref('')
 const currentPage = ref(1)
@@ -136,15 +130,13 @@ const paginatedRooms = computed(() => {
 const fetchRooms = async () => {
   loading.value = true
   try {
-    const [roomsRes, issuesRes, commsRes] = await Promise.all([
+    const [roomsRes, issuesRes] = await Promise.all([
       roomAPI.getRooms(),
-      qualityIssueAPI.getQualityIssues(),
-      communicationAPI.getCommunications()
+      qualityIssueAPI.getQualityIssues()
     ])
     
     rooms.value = roomsRes.data
     qualityIssues.value = issuesRes.data
-    communications.value = commsRes.data
   } catch (error) {
     ElMessage.error('获取房间数据失败')
   } finally {
@@ -174,9 +166,6 @@ const getRoomIssueCount = (roomId) => {
   return qualityIssues.value.filter(issue => issue.room_id === roomId).length
 }
 
-const getRoomCommCount = (roomId) => {
-  return communications.value.filter(comm => comm.room_id === roomId).length
-}
 
 const getStatusType = (status) => {
   const typeMap = {

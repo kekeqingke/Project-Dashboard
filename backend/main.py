@@ -12,7 +12,6 @@ import os
 import uuid
 import shutil
 import io
-from pdf_generator import create_room_communication_pdf
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -138,119 +137,6 @@ def delete_room(room_id: int, db: Session = Depends(get_db),
     
     return {"message": "房间删除成功"}
 
-@app.get("/rooms/{room_id}/export-pdf")
-def export_room_pdf(room_id: int, db: Session = Depends(get_db),
-                    current_user: models.User = Depends(auth.get_current_user)):
-    """导出房间沟通记录PDF"""
-    try:
-        # 检查房间访问权限
-        room = crud.get_room_by_id(db=db, room_id=room_id, user_id=current_user.id if current_user.role != "admin" else None)
-        if not room:
-            raise HTTPException(status_code=404, detail="房间不存在或无权限访问")
-        
-        # 获取房间相关数据
-        room_dict = {
-            'building_unit': room.building_unit,
-            'room_number': room.room_number,
-            'expected_delivery_date': room.expected_delivery_date
-        }
-        
-        # 获取客户信息
-        customer_info = None
-        try:
-            customer = crud.get_customer_by_room_id(db, room_id)
-            if customer:
-                customer_info = {
-                    'name': customer.name,
-                    'gender': customer.gender,
-                    'id_card': customer.id_card,
-                    'phone': customer.phone,
-                    'customer_level': customer.customer_level,
-                    'work_unit': customer.work_unit
-                }
-        except:
-            pass
-        
-        # 获取沟通记录
-        communications = crud.get_communications(db, room_id)
-        comm_list = []
-        latest_customer_description = ""
-        
-        for comm in communications:
-            comm_dict = {
-                'content': comm.content,
-                'communication_time': comm.communication_time,
-                'feedback': comm.feedback,
-                'customer_description': comm.customer_description,
-                'created_at': comm.created_at
-            }
-            comm_list.append(comm_dict)
-            
-            if comm.customer_description and not latest_customer_description:
-                latest_customer_description = comm.customer_description
-        
-        # 获取质量问题
-        quality_issues = crud.get_quality_issues(db, room_id)
-        issue_list = []
-        for issue in quality_issues:
-            issue_dict = {
-                'description': issue.description,
-                'status': issue.status,
-                'created_at': issue.created_at,
-                'user_name': issue.user.name if issue.user else ''
-            }
-            issue_list.append(issue_dict)
-        
-        # 获取分配的用户信息
-        assigned_users = {'maintenance_engineer': '', 'customer_ambassador': ''}
-        assignments = db.query(models.UserRoom).filter(models.UserRoom.room_id == room_id).all()
-        for assignment in assignments:
-            user = assignment.user
-            if user.role == 'maintenance_engineer':
-                assigned_users['maintenance_engineer'] = user.name
-            elif user.role == 'customer_ambassador':
-                assigned_users['customer_ambassador'] = user.name
-        
-        # 生成PDF
-        pdf_bytes = create_room_communication_pdf(
-            room_info=room_dict,
-            customer_info=customer_info,
-            communications=comm_list,
-            quality_issues=issue_list,
-            assigned_users=assigned_users,
-            latest_customer_description=latest_customer_description
-        )
-        
-        # 创建临时文件并返回
-        import tempfile
-        import os
-        from fastapi.responses import FileResponse
-        from urllib.parse import quote
-        
-        # 创建临时文件
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            temp_file.write(pdf_bytes)
-            temp_file_path = temp_file.name
-        
-        # 生成友好的中文文件名
-        chinese_filename = f"瑧湾悦二期-{room.building_unit}-{room.room_number}-沟通记录.pdf"
-        encoded_filename = quote(chinese_filename.encode('utf-8'))
-        
-        # 清理临时文件的后台任务
-        import atexit
-        atexit.register(lambda: os.unlink(temp_file_path) if os.path.exists(temp_file_path) else None)
-        
-        return FileResponse(
-            path=temp_file_path,
-            filename=f"ZWY-{room.building_unit.replace('单元', '')}-{room.room_number}.pdf",
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
-            }
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF生成失败: {str(e)}")
 
 # 房间分配接口
 @app.get("/room-assignments/")
@@ -322,30 +208,6 @@ def update_quality_issue(issue_id: int, issue_update: dict, db: Session = Depend
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"更新失败: {str(e)}")
 
-# 客户沟通管理接口
-@app.get("/communications/", response_model=List[schemas.Communication])
-def read_communications(room_id: int = None, db: Session = Depends(get_db),
-                       current_user: models.User = Depends(auth.get_current_user)):
-    return crud.get_communications(db, room_id, current_user.id if current_user.role != "admin" else None)
-
-@app.post("/communications/", response_model=schemas.Communication)
-def create_communication(comm: schemas.CommunicationCreate, db: Session = Depends(get_db),
-                        current_user: models.User = Depends(auth.get_current_user)):
-    if current_user.role not in ["customer_ambassador", "admin"]:
-        raise HTTPException(status_code=403, detail="只有客户大使和管理员可以添加沟通记录")
-    return crud.create_communication(db=db, communication=comm, user_id=current_user.id)
-
-@app.put("/communications/{communication_id}", response_model=schemas.Communication)
-def update_communication(communication_id: int, update_data: schemas.CommunicationUpdate, db: Session = Depends(get_db),
-                         current_user: models.User = Depends(auth.get_current_user)):
-    if current_user.role not in ["customer_ambassador", "admin"]:
-        raise HTTPException(status_code=403, detail="只有客户大使和管理员可以更新沟通记录")
-    
-    communication = crud.update_communication(db=db, communication_id=communication_id, is_implemented=update_data.is_implemented, user_id=current_user.id if current_user.role != "admin" else None)
-    if not communication:
-        raise HTTPException(status_code=404, detail="沟通记录未找到")
-    
-    return communication
 
 # 房间状态更新接口
 @app.put("/rooms/{room_id}/delivery-status")
@@ -423,30 +285,7 @@ async def update_room_letter_status(
     
     return {"message": "信件状态更新成功", "letter_status": letter_status}
 
-@app.put("/rooms/{room_id}/pre-leakage")
-async def update_room_pre_leakage(
-    room_id: int,
-    pre_leakage: str = Query(...),
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    # 只有管理员和客户大使可以更新房间状态
-    if current_user.role not in ["admin", "customer_ambassador"]:
-        raise HTTPException(status_code=403, detail="权限不足")
-    
-    room = db.query(models.Room).filter(models.Room.id == room_id).first()
-    if not room:
-        raise HTTPException(status_code=404, detail="房间不存在")
-    
-    # 验证状态值
-    if pre_leakage not in ["无", "有"]:
-        raise HTTPException(status_code=400, detail="无效的前期渗漏状态")
-    
-    room.pre_leakage = pre_leakage
-    db.commit()
-    db.refresh(room)
-    
-    return {"message": "前期渗漏状态更新成功", "pre_leakage": pre_leakage}
+# 前期渗漏字段已删除，相关接口也已删除
 
 @app.put("/rooms/{room_id}/expected-delivery-date")
 async def update_room_expected_delivery_date(
@@ -478,6 +317,29 @@ async def update_room_expected_delivery_date(
     db.refresh(room)
     
     return {"message": "预计交付时间更新成功", "expected_delivery_date": expected_delivery_date}
+
+# 客户大使专用状态更新接口
+@app.put("/rooms/{room_id}/ambassador-status")
+async def update_room_ambassador_status(
+    room_id: int,
+    status_data: dict,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """客户大使更新房间状态（仅允许特定字段）"""
+    # 只有管理员和客户大使可以更新
+    if current_user.role not in ["admin", "customer_ambassador"]:
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    room = crud.update_room_ambassador_status(db=db, room_id=room_id, status_data=status_data)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    return {
+        "message": "房间状态更新成功",
+        "room_id": room_id,
+        "updated_fields": {k: v for k, v in status_data.items() if k in ['delivery_status', 'contract_status', 'letter_status', 'expected_delivery_date']}
+    }
 
 # 文件上传接口
 @app.post("/upload-image/")

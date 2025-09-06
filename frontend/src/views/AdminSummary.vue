@@ -34,11 +34,6 @@
             <el-option label="无问题" value="no_issues" />
           </el-select>
           
-          <el-select v-model="selectedCommFilter" placeholder="沟通筛选" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="有待落实" value="has_comms" />
-            <el-option label="无待落实" value="no_comms" />
-          </el-select>
           
           <el-select v-model="selectedLetterFilter" placeholder="信件状态" clearable @change="onFilterChange" style="width: 120px">
             <el-option label="全部" value="" />
@@ -47,11 +42,6 @@
             <el-option label="SX" value="SX" />
           </el-select>
           
-          <el-select v-model="selectedLeakageFilter" placeholder="前期渗漏" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="无" value="无" />
-            <el-option label="有" value="有" />
-          </el-select>
           
           <el-button type="primary" @click="refreshData" :loading="loading">
             刷新
@@ -123,12 +113,6 @@
           </template>
         </el-table-column>
         
-        <!-- 待落实相关列 -->
-        <el-table-column label="待落实" width="70" align="center">
-          <template #default="scope">
-            <span>{{ scope.row.pending_communications_count || 0 }}</span>
-          </template>
-        </el-table-column>
         
         <!-- 客户大使录入字段 -->
         <el-table-column prop="expected_delivery_date" label="预计交付时间" width="120">
@@ -147,16 +131,6 @@
               {{ scope.row.letter_status }}
             </el-tag>
             <span v-else>{{ scope.row.letter_status || '无' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="pre_leakage" label="前期渗漏" width="90">
-          <template #default="scope">
-            <el-tag 
-              :type="scope.row.pre_leakage === '有' ? 'danger' : 'info'" 
-              size="small"
-            >
-              {{ scope.row.pre_leakage || '无' }}
-            </el-tag>
           </template>
         </el-table-column>
         
@@ -208,9 +182,7 @@ const selectedStatus = ref('')
 const selectedDelivery = ref('')
 const selectedContract = ref('')
 const selectedIssueFilter = ref('')
-const selectedCommFilter = ref('')
 const selectedLetterFilter = ref('')
-const selectedLeakageFilter = ref('')
 
 // 分页相关
 const currentPage = ref(1)
@@ -284,12 +256,6 @@ const filteredRooms = computed(() => {
       if (selectedIssueFilter.value === 'no_issues' && hasIssues) return false
     }
     
-    // 沟通筛选
-    if (selectedCommFilter.value) {
-      const hasComms = (room.pending_communications_count || 0) > 0
-      if (selectedCommFilter.value === 'has_comms' && !hasComms) return false
-      if (selectedCommFilter.value === 'no_comms' && hasComms) return false
-    }
     
     // 信件状态筛选
     if (selectedLetterFilter.value) {
@@ -297,11 +263,6 @@ const filteredRooms = computed(() => {
       if (letterStatus !== selectedLetterFilter.value) return false
     }
     
-    // 前期渗漏筛选
-    if (selectedLeakageFilter.value) {
-      const preLeakage = room.pre_leakage || '无'
-      if (preLeakage !== selectedLeakageFilter.value) return false
-    }
     
     return true
   })
@@ -348,7 +309,7 @@ const handleCurrentChange = (newPage) => {
 const exportData = () => {
   // 简单的CSV导出
   const csvData = [
-    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '待落实', '预计交付时间', '信件状态', '前期渗漏']
+    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '预计交付时间', '信件状态']
   ]
   
   filteredRooms.value.forEach(room => {
@@ -359,10 +320,8 @@ const exportData = () => {
       room.delivery_status,
       room.contract_status,
       room.pending_issues_count || 0,
-      room.pending_communications_count || 0,
       room.expected_delivery_date ? formatDate(room.expected_delivery_date) : '',
-      room.letter_status || '无',
-      room.pre_leakage || '无'
+      room.letter_status || '无'
     ])
   })
   

@@ -72,19 +72,6 @@ export const qualityIssueAPI = {
   }
 }
 
-// 客户沟通相关API
-export const communicationAPI = {
-  // 获取沟通记录列表
-  getCommunications(roomId) {
-    const params = roomId ? { room_id: roomId } : {}
-    return api.get('/communications/', { params })
-  },
-  
-  // 创建沟通记录
-  createCommunication(commData) {
-    return api.post('/communications/', commData)
-  }
-}
 
 // 用户相关API
 export const userAPI = {

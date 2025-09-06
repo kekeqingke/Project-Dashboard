@@ -18,7 +18,6 @@ class User(Base):
     # 关系
     room_assignments = relationship("UserRoom", back_populates="user")
     quality_issues = relationship("QualityIssue", back_populates="user", foreign_keys="QualityIssue.user_id")
-    communications = relationship("Communication", back_populates="user")
 
 class Room(Base):
     __tablename__ = "rooms"
@@ -30,7 +29,6 @@ class Room(Base):
     delivery_status = Column(String, default="待交付")  # 待交付, 已交付
     contract_status = Column(String, default="待签约")  # 待签约, 已签约
     letter_status = Column(String, default="无")  # 无, ZX, SX
-    pre_leakage = Column(String, default="无")  # 无, 有
     expected_delivery_date = Column(Date, nullable=True)  # 预计交付时间
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -38,7 +36,6 @@ class Room(Base):
     # 关系
     user_assignments = relationship("UserRoom", back_populates="room")
     quality_issues = relationship("QualityIssue", back_populates="room")
-    communications = relationship("Communication", back_populates="room")
     customer = relationship("Customer", back_populates="room", uselist=False)
 
 class UserRoom(Base):
@@ -72,24 +69,6 @@ class QualityIssue(Base):
     room = relationship("Room", back_populates="quality_issues")
     user = relationship("User", back_populates="quality_issues", foreign_keys=[user_id])
     acceptor = relationship("User", foreign_keys=[accepted_by])
-
-class Communication(Base):
-    __tablename__ = "communications"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    room_id = Column(Integer, ForeignKey("rooms.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
-    content = Column(Text)
-    communication_time = Column(DateTime, nullable=True)
-    feedback = Column(Text)
-    customer_description = Column(Text, nullable=True)  # 客户描摹
-    image = Column(String(255), nullable=True)  # 沟通记录图片文件名
-    is_implemented = Column(Boolean, default=False)  # 是否已落实
-    created_at = Column(DateTime, server_default=func.now())
-    
-    # 关系
-    room = relationship("Room", back_populates="communications")
-    user = relationship("User", back_populates="communications")
 
 class Customer(Base):
     __tablename__ = "customers"

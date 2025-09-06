@@ -121,32 +121,6 @@ class QualityIssue(QualityIssueBase):
     class Config:
         from_attributes = True
 
-# Communication schemas
-class CommunicationBase(BaseModel):
-    room_id: int
-    content: str
-    communication_time: Optional[datetime] = None
-    feedback: Optional[str] = None
-    customer_description: Optional[str] = None  # 客户描摹
-    image: Optional[str] = None  # 沟通记录图片文件名
-
-class CommunicationCreate(CommunicationBase):
-    pass
-
-class CommunicationUpdate(BaseModel):
-    is_implemented: bool
-
-class Communication(CommunicationBase):
-    id: int
-    user_id: int
-    communication_time: Optional[datetime] = None
-    customer_description: Optional[str] = None  # 客户描摹
-    image: Optional[str] = None  # 沟通记录图片文件名
-    is_implemented: bool = False  # 是否已落实
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 # Customer schemas
 class CustomerBase(BaseModel):

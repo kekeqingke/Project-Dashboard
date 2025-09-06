@@ -2,7 +2,7 @@
   <div class="ambassador-dashboard">
     <div class="dashboard-header">
       <h3>客户大使工作台</h3>
-      <p class="role-description">管理分配给您的房间的质量问题和客户沟通记录</p>
+      <p class="role-description">管理分配给您的房间的质量问题</p>
     </div>
 
     <div v-if="loading" class="loading">
@@ -10,223 +10,158 @@
       <span>加载中...</span>
     </div>
 
-    <div v-else-if="assignedRooms.length === 0" class="no-rooms">
-      <el-empty description="暂无分配的房间">
-        <p>请联系管理员为您分配房间</p>
-      </el-empty>
+    <div v-else-if="rooms.length === 0" class="empty-state">
+      <el-empty description="您当前没有被分配任何房间" />
     </div>
 
-    <div v-else>
-      <!-- 房间选择器 -->
-      <div class="room-selector">
-        <el-select 
-          v-model="selectedRoomId" 
-          placeholder="请选择要管理的房间"
-          size="large"
-          style="width: 300px"
-          @change="handleRoomChange"
-        >
-          <el-option
-            v-for="room in assignedRooms"
-            :key="room.id"
-            :label="`${room.building_unit} ${room.room_number}号房`"
-            :value="room.id"
+    <div v-else class="dashboard-content">
+      <!-- 房间卡片列表 -->
+      <div class="rooms-grid">
+        <div v-for="room in rooms" :key="room.id" class="room-card">
+          <el-card 
+            :class="{ 'active-room': selectedRoomId === room.id }"
+            @click="selectRoom(room.id)"
           >
-            <span>{{ room.building_unit }} {{ room.room_number }}号房</span>
-            <el-tag 
-              :type="getStatusType(room.status)" 
-              size="small" 
-              style="margin-left: 8px"
-            >
-              {{ getStatusText(room.status) }}
-            </el-tag>
-          </el-option>
-        </el-select>
+            <div class="room-header">
+              <h4>{{ room.building_unit }} {{ room.room_number }}号房</h4>
+              <el-tag :type="getStatusType(room.status)">{{ room.status }}</el-tag>
+            </div>
+            
+            <div class="room-stats">
+              <div class="stat-item">
+                <el-statistic title="质量问题" :value="room.quality_issue_count || 0" />
+              </div>
+              <div class="stat-item">
+                <el-statistic title="待验收" :value="room.pending_verification_count || 0" />
+              </div>
+            </div>
+          </el-card>
+        </div>
       </div>
 
-      <!-- 客户信息卡片 -->
-      <div v-if="currentRoom" class="customer-info-card">
-        <el-card>
+      <!-- 房间详情面板 -->
+      <div v-if="selectedRoomId && currentRoom" class="room-details">
+        <!-- 房间状态管理模块 - 水平布局 -->
+        <el-card class="status-management-card">
           <template #header>
-            <div class="card-header">
-              <div class="header-title">
-                <el-icon><User /></el-icon>
-                <span>客户信息</span>
-              </div>
-              <div class="header-actions">
-                <el-button 
-                  v-if="!currentCustomer" 
-                  type="primary" 
-                  size="small"
-                  @click="openCustomerDialog"
-                >
-                  <el-icon><Plus /></el-icon>
-                  录入客户信息
-                </el-button>
-                <div v-else class="customer-actions">
-                  <el-button type="primary" size="small" @click="openCustomerDialog(currentCustomer)">
-                    <el-icon><Edit /></el-icon>
-                    编辑
-                  </el-button>
-                  <el-button type="danger" size="small" @click="deleteCustomerInfo">
-                    <el-icon><Delete /></el-icon>
-                    删除
-                  </el-button>
-                </div>
+            <div class="module-header">
+              <div class="module-title">
+                <el-icon><Setting /></el-icon>
+                <span>房间状态管理</span>
               </div>
             </div>
           </template>
           
-          <div v-if="!currentCustomer" class="no-customer">
-            <el-empty description="暂无客户信息" :image-size="80" />
-          </div>
-          
-          <div v-else class="customer-details">
-            <div class="customer-info-row">
-              <div class="info-item">
-                <span class="info-label">姓名：</span>
-                <span class="info-value">{{ currentCustomer.name }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">性别：</span>
-                <span class="info-value">{{ currentCustomer.gender }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">客户分级：</span>
-                <el-tag :type="getCustomerLevelType(currentCustomer.customer_level)" size="small">
-                  {{ currentCustomer.customer_level }}级
-                </el-tag>
-              </div>
+          <div class="status-management-horizontal">
+            <div class="status-item">
+              <label>整改状态</label>
+              <el-tag :type="getStatusType(currentRoom.status)" size="large">
+                {{ currentRoom.status }}
+              </el-tag>
             </div>
-            <div class="customer-info-row">
-              <div class="info-item">
-                <span class="info-label">身份证号：</span>
-                <span class="info-value">{{ currentCustomer.id_card }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">手机号：</span>
-                <span class="info-value">{{ currentCustomer.phone }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">工作单位：</span>
-                <span class="info-value">{{ currentCustomer.work_unit || '无' }}</span>
-              </div>
+            
+            <div class="status-item">
+              <label>交付状态</label>
+              <el-select 
+                v-model="statusForm.delivery_status" 
+                placeholder="请选择交付状态"
+                size="small"
+                @change="updateDeliveryStatus"
+                :disabled="statusUpdateLoading"
+              >
+                <el-option label="待交付" value="待交付" />
+                <el-option label="已交付" value="已交付" />
+              </el-select>
+            </div>
+            
+            <div class="status-item">
+              <label>签约状态</label>
+              <el-select 
+                v-model="statusForm.contract_status" 
+                placeholder="请选择签约状态"
+                size="small"
+                @change="updateContractStatus"
+                :disabled="statusUpdateLoading"
+              >
+                <el-option label="待签约" value="待签约" />
+                <el-option label="已签约" value="已签约" />
+              </el-select>
+            </div>
+            
+            <div class="status-item">
+              <label>信件状态</label>
+              <el-select 
+                v-model="statusForm.letter_status" 
+                placeholder="请选择信件状态"
+                size="small"
+                @change="updateLetterStatus"
+                :disabled="statusUpdateLoading"
+              >
+                <el-option label="无" value="无" />
+                <el-option label="ZX" value="ZX" />
+                <el-option label="SX" value="SX" />
+              </el-select>
+            </div>
+            
+            <div class="status-item">
+              <label>预计交付时间</label>
+              <el-date-picker
+                v-model="statusForm.expected_delivery_date"
+                type="date"
+                placeholder="选择时间"
+                format="YYYY/MM/DD"
+                value-format="YYYY-MM-DD"
+                size="small"
+                @change="updateExpectedDeliveryDate"
+                :disabled="statusUpdateLoading"
+                style="width: 150px;"
+                clearable
+              />
             </div>
           </div>
         </el-card>
-      </div>
 
-      <!-- 当前房间信息 -->
-      <div v-if="currentRoom" class="current-room-info">
-        <el-card>
+        <el-card class="room-info-card">
           <template #header>
-            <div class="room-header">
-              <div class="room-info">
-                <h4>{{ currentRoom.building_unit }} {{ currentRoom.room_number }}号房</h4>
-                <div class="status-tags">
-                  <el-tag :type="getStatusType(currentRoom.status)">
-                    {{ getStatusText(currentRoom.status) }}
-                  </el-tag>
-                </div>
-              </div>
-              <div class="room-controls">
-                <div class="status-controls">
-                  <div class="control-group">
-                    <label>交付状态：</label>
-                    <el-select 
-                      v-model="currentRoom.delivery_status" 
-                      size="small"
-                      @change="updateDeliveryStatus"
-                      style="width: 100px"
-                    >
-                      <el-option label="待交付" value="待交付" />
-                      <el-option label="已交付" value="已交付" />
-                    </el-select>
-                  </div>
-                  <div class="control-group">
-                    <label>预计交付时间：</label>
-                    <el-date-picker
-                      v-model="currentRoom.expected_delivery_date"
-                      type="date"
-                      size="small"
-                      placeholder="选择日期"
-                      format="MM/DD"
-                      value-format="YYYY-MM-DD"
-                      @change="updateExpectedDeliveryDate"
-                      :disabled="currentRoom.delivery_status === '已交付'"
-                      style="width: 120px"
-                    />
-                  </div>
-                  <div class="control-group">
-                    <label>签约状态：</label>
-                    <el-select 
-                      v-model="currentRoom.contract_status" 
-                      size="small"
-                      @change="updateContractStatus"
-                      style="width: 100px"
-                    >
-                      <el-option label="待签约" value="待签约" />
-                      <el-option label="已签约" value="已签约" />
-                    </el-select>
-                  </div>
-                  <div class="control-group">
-                    <label>信件状态：</label>
-                    <el-select 
-                      v-model="currentRoom.letter_status" 
-                      size="small"
-                      @change="updateLetterStatus"
-                      style="width: 80px"
-                    >
-                      <el-option label="无" value="无" />
-                      <el-option label="ZX" value="ZX" />
-                      <el-option label="SX" value="SX" />
-                    </el-select>
-                  </div>
-                  <div class="control-group">
-                    <label>前期渗漏：</label>
-                    <el-select 
-                      v-model="currentRoom.pre_leakage" 
-                      size="small"
-                      @change="updatePreLeakage"
-                      style="width: 80px"
-                    >
-                      <el-option label="无" value="无" />
-                      <el-option label="有" value="有" />
-                    </el-select>
-                  </div>
-                </div>
-                <el-button 
-                  type="primary" 
-                  :icon="Refresh" 
-                  size="small"
-                  @click="refreshRoomData"
-                  :loading="refreshing"
-                >
-                  刷新数据
-                </el-button>
-              </div>
+            <div class="room-info-header">
+              <h4>{{ currentRoom.building_unit }} {{ currentRoom.room_number }}号房 - 详细信息</h4>
+              <el-tag :type="getStatusType(currentRoom.status)">{{ currentRoom.status }}</el-tag>
             </div>
           </template>
           
-          <div class="room-stats">
+          <div class="room-info-grid">
+            <div class="info-item">
+              <label>交付状态：</label>
+              <el-tag :type="currentRoom.delivery_status === '已交付' ? 'success' : 'warning'" size="small">
+                {{ currentRoom.delivery_status }}
+              </el-tag>
+            </div>
+            <div class="info-item">
+              <label>签约状态：</label>
+              <el-tag :type="currentRoom.contract_status === '已签约' ? 'success' : 'warning'" size="small">
+                {{ currentRoom.contract_status }}
+              </el-tag>
+            </div>
+            <div class="info-item">
+              <label>预计交付时间：</label>
+              <span>{{ currentRoom.expected_delivery_date ? formatDate(currentRoom.expected_delivery_date) : '未设置' }}</span>
+            </div>
+            <div class="info-item">
+              <label>最后更新：</label>
+              <span>{{ formatDate(currentRoom.updated_at) }}</span>
+            </div>
+          </div>
+
+          <div class="stats-row">
             <div class="stat-item">
-              <el-statistic title="质量问题" :value="currentRoom.quality_issue_count || 0" />
+              <el-statistic title="质量问题总数" :value="currentRoom.quality_issue_count || 0" />
             </div>
             <div class="stat-item">
               <el-statistic title="待验收" :value="currentRoom.pending_verification_count || 0" />
             </div>
-            <div class="stat-item">
-              <el-statistic title="沟通记录" :value="currentRoom.communication_count || 0" />
-            </div>
-            <div class="stat-item">
-              <el-statistic title="待落实" :value="currentRoom.pending_implementation_count || 0" />
-            </div>
           </div>
         </el-card>
-      </div>
 
-      <!-- 功能模块 -->
-      <div v-if="currentRoom" class="function-modules">
         <!-- 质量问题管理模块 -->
         <el-card class="module-card">
           <template #header>
@@ -237,7 +172,7 @@
               </div>
               <el-button type="primary" @click="openQualityIssueDialog">
                 <el-icon><Plus /></el-icon>
-                记录新问题
+                添加质量问题
               </el-button>
             </div>
           </template>
@@ -252,106 +187,50 @@
                 :key="issue.id"
                 class="issue-item"
               >
+                <div class="issue-header">
+                  <span class="issue-date">录入时间：{{ formatDateOnly(issue.record_date || issue.created_at) }}</span>
+                  <el-tag :type="getIssueStatusType(issue.status)">{{ issue.status }}</el-tag>
+                </div>
                 <div class="issue-content">
-                  <div class="issue-header">
-                    <span class="issue-date">{{ formatDate(issue.record_date || issue.created_at) }}</span>
-                    <el-tag 
-                      :type="issue.is_verified ? 'success' : 'warning'"
-                      size="small"
-                    >
-                      {{ issue.is_verified ? '已验收' : '待验收' }}
-                    </el-tag>
+                  <div class="issue-section">
+                    <strong>问题描述:</strong>
+                    <p>{{ issue.description }}</p>
                   </div>
-                  <p class="issue-description">{{ issue.description }}</p>
-                  <div class="issue-actions">
-                    <el-button 
-                      type="primary" 
-                      size="small"
-                      @click="editQualityIssue(issue)"
-                    >
-                      编辑
-                    </el-button>
-                    <el-button 
-                      v-if="!issue.is_verified" 
-                      type="success" 
-                      size="small"
-                      @click="verifyIssue(issue)"
-                    >
-                      标记验收
-                    </el-button>
+                  <div class="issue-section">
+                    <strong>问题类型:</strong>
+                    <span>{{ issue.issue_type }}</span>
+                  </div>
+                  <div v-if="issue.images" class="issue-images">
+                    <strong>相关图片:</strong>
+                    <div class="images-container">
+                      <el-image
+                        v-for="(image, index) in JSON.parse(issue.images || '[]')"
+                        :key="index"
+                        :src="`/api/uploads/${image}`"
+                        style="width: 80px; height: 60px; margin-right: 8px;"
+                        fit="cover"
+                        :preview-src-list="JSON.parse(issue.images || '[]').map(img => `/api/uploads/${img}`)"
+                        class="preview-image"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </el-card>
-
-        <!-- 客户沟通管理模块 -->
-        <el-card class="module-card">
-          <template #header>
-            <div class="module-header">
-              <div class="module-title">
-                <el-icon><ChatLineSquare /></el-icon>
-                <span>客户沟通管理</span>
-              </div>
-              <el-button type="primary" @click="openCommunicationDialog">
-                <el-icon><Plus /></el-icon>
-                添加沟通记录
-              </el-button>
-            </div>
-          </template>
-          
-          <div class="module-content">
-            <div v-if="communications.length === 0" class="empty-content">
-              <el-empty description="暂无沟通记录" />
-            </div>
-            <div v-else class="communications-list">
-              <div 
-                v-for="comm in communications" 
-                :key="comm.id"
-                class="communication-item"
-              >
-                <div class="comm-header">
-                  <span class="comm-date">
-                    {{ comm.communication_time ? formatDate(comm.communication_time) : formatDate(comm.created_at) }}
-                  </span>
-                  <el-tag 
-                    :type="comm.is_implemented ? 'success' : 'warning'"
+                <div class="issue-actions">
+                  <el-button 
+                    type="primary" 
                     size="small"
+                    @click="editQualityIssue(issue)"
                   >
-                    {{ comm.is_implemented ? '已落实' : '待落实' }}
-                  </el-tag>
-                </div>
-                <div class="comm-content">
-                  <div class="comm-section">
-                    <strong>沟通内容:</strong>
-                    <p>{{ comm.content }}</p>
-                  </div>
-                  <div v-if="comm.feedback" class="comm-section">
-                    <strong>核心诉求:</strong>
-                    <p>{{ comm.feedback }}</p>
-                  </div>
-                  <div v-if="comm.customer_description" class="comm-section">
-                    <strong>客户描摹:</strong>
-                    <p>{{ comm.customer_description }}</p>
-                  </div>
-                  <div class="comm-actions">
-                    <el-button 
-                      type="primary" 
-                      size="small"
-                      @click="editCommunication(comm)"
-                    >
-                      编辑
-                    </el-button>
-                    <el-button 
-                      v-if="!comm.is_implemented" 
-                      type="success" 
-                      size="small"
-                      @click="markImplemented(comm)"
-                    >
-                      标记落实
-                    </el-button>
-                  </div>
+                    编辑
+                  </el-button>
+                  <el-button 
+                    v-if="issue.status === '待验收'" 
+                    type="success" 
+                    size="small"
+                    @click="acceptIssue(issue)"
+                  >
+                    验收
+                  </el-button>
                 </div>
               </div>
             </div>
@@ -360,112 +239,13 @@
       </div>
     </div>
 
-    <!-- 快速添加沟通记录对话框 -->
-    <el-dialog
-      v-model="communicationDialogVisible"
-      :title="editingCommunication ? '编辑沟通记录' : '添加沟通记录'"
-      width="700px"
-    >
-      <el-form :model="communicationForm" label-width="100px">
-        <el-form-item label="房间">
-          <span>{{ currentRoom?.building_unit }} {{ currentRoom?.room_number }}号房</span>
-        </el-form-item>
-        <el-form-item label="沟通内容" required>
-          <el-input
-            v-model="communicationForm.content"
-            type="textarea"
-            rows="4"
-            placeholder="请输入沟通内容"
-          />
-        </el-form-item>
-        <el-form-item label="沟通时间" required>
-          <el-date-picker
-            v-model="communicationForm.communication_time"
-            type="date"
-            placeholder="请选择沟通时间"
-            format="YYYY/MM/DD"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item label="核心诉求" required>
-          <el-input
-            v-model="communicationForm.feedback"
-            type="textarea"
-            rows="3"
-            placeholder="请输入核心诉求"
-          />
-        </el-form-item>
-        <el-form-item label="客户描摹">
-          <el-input
-            v-model="communicationForm.customer_description"
-            type="textarea"
-            rows="3"
-            placeholder="请输入客户描摹（选填）"
-          />
-        </el-form-item>
-        <el-form-item label="沟通截图">
-          <el-upload
-            ref="uploadRef"
-            action=""
-            :http-request="handleImageUpload"
-            :before-upload="beforeImageUpload"
-            :on-success="handleUploadSuccess"
-            :on-error="handleUploadError"
-            :show-file-list="false"
-            accept="image/*"
-            :loading="uploadLoading"
-          >
-            <el-button type="primary" :loading="uploadLoading">
-              <el-icon><Upload /></el-icon>
-              上传图片
-            </el-button>
-            <template #tip>
-              <div class="el-upload__tip">
-                只能上传jpg/png文件，且不超过2MB
-              </div>
-            </template>
-          </el-upload>
-          
-          <!-- 图片预览 -->
-          <div v-if="communicationForm.image" class="image-preview-container">
-            <div class="image-wrapper">
-              <el-image
-                :src="`/api/uploads/${communicationForm.image}`"
-                style="width: 120px; height: 90px"
-                fit="cover"
-                :preview-src-list="[`/api/uploads/${communicationForm.image}`]"
-                class="preview-image"
-              />
-            </div>
-            <div class="image-actions">
-              <el-button
-                type="danger"
-                size="small"
-                :icon="Delete"
-                @click="removeImage"
-              >
-                删除图片
-              </el-button>
-            </div>
-          </div>
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <el-button @click="communicationDialogVisible = false">取消</el-button>
-        <el-button @click="resetCommunicationForm">重置</el-button>
-        <el-button type="primary" @click="saveCommunication">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 添加质量问题对话框 -->
+    <!-- 快速添加质量问题对话框 -->
     <el-dialog
       v-model="qualityIssueDialogVisible"
-      :title="editingQualityIssue ? '编辑质量问题' : '记录质量问题'"
-      width="600px"
+      :title="editingQualityIssue ? '编辑质量问题' : '添加质量问题'"
+      width="700px"
     >
-      <el-form :model="qualityIssueForm" label-width="100px">
+      <el-form :model="qualityIssueForm" label-width="100px" ref="qualityIssueFormRef">
         <el-form-item label="房间">
           <span>{{ currentRoom?.building_unit }} {{ currentRoom?.room_number }}号房</span>
         </el-form-item>
@@ -478,24 +258,62 @@
           />
         </el-form-item>
         <el-form-item label="问题类型" required>
-          <el-select 
-            v-model="qualityIssueForm.issue_type" 
-            placeholder="请选择问题类型"
-            style="width: 100%"
-          >
+          <el-select v-model="qualityIssueForm.issue_type" placeholder="请选择问题类型" style="width: 100%">
             <el-option label="质量瑕疵" value="质量瑕疵" />
             <el-option label="材料备货" value="材料备货" />
           </el-select>
         </el-form-item>
-        <el-form-item label="完成时间" required>
+        <el-form-item label="录入时间" required>
           <el-date-picker
             v-model="qualityIssueForm.record_date"
             type="date"
-            placeholder="请选择完成时间"
+            placeholder="请选择录入时间"
             format="YYYY/MM/DD"
             value-format="YYYY-MM-DD"
             style="width: 100%"
           />
+        </el-form-item>
+        <el-form-item label="相关图片">
+          <el-upload
+            ref="uploadRef"
+            action=""
+            :http-request="uploadImage"
+            :show-file-list="false"
+            accept="image/*"
+            :before-upload="beforeImageUpload"
+            multiple
+          >
+            <el-button type="primary">
+              <el-icon><Upload /></el-icon>
+              点击上传图片
+            </el-button>
+            <template #tip>
+              <div class="el-upload__tip">
+                只能上传jpg/png文件，且不超过5MB，最多2张图片
+              </div>
+            </template>
+          </el-upload>
+          
+          <!-- 图片预览 -->
+          <div v-if="qualityIssueForm.uploadedImages.length > 0" class="uploaded-images">
+            <div v-for="(image, index) in qualityIssueForm.uploadedImages" :key="index" class="image-item">
+              <el-image
+                :src="`/api/uploads/${image}`"
+                style="width: 100px; height: 75px"
+                fit="cover"
+                class="preview-img"
+              />
+              <el-button
+                type="danger"
+                size="small"
+                circle
+                class="remove-btn"
+                @click="removeImage(index)"
+              >
+                <el-icon><Close /></el-icon>
+              </el-button>
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       
@@ -505,450 +323,171 @@
         <el-button type="primary" @click="saveQualityIssue">保存</el-button>
       </template>
     </el-dialog>
-
-    <!-- 客户信息录入/编辑对话框 -->
-    <el-dialog
-      v-model="customerDialogVisible"
-      :title="currentCustomer ? '编辑客户信息' : '录入客户信息'"
-      width="600px"
-    >
-      <el-form ref="customerFormRef" :model="customerForm" label-width="100px" :rules="customerRules">
-        <el-form-item label="房间">
-          <span>{{ currentRoom?.building_unit }} {{ currentRoom?.room_number }}号房</span>
-        </el-form-item>
-        <el-form-item label="客户姓名" prop="name" required>
-          <el-input
-            v-model="customerForm.name"
-            placeholder="请输入客户姓名"
-            maxlength="50"
-            show-word-limit
-          />
-        </el-form-item>
-        <el-form-item label="性别" prop="gender" required>
-          <el-radio-group v-model="customerForm.gender">
-            <el-radio value="男">男</el-radio>
-            <el-radio value="女">女</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="身份证号" prop="id_card" required>
-          <el-input
-            v-model="customerForm.id_card"
-            placeholder="请输入18位身份证号"
-            maxlength="18"
-          />
-        </el-form-item>
-        <el-form-item label="手机号" prop="phone" required>
-          <el-input
-            v-model="customerForm.phone"
-            placeholder="请输入11位手机号"
-            maxlength="11"
-          />
-        </el-form-item>
-        <el-form-item label="客户分级" prop="customer_level" required>
-          <el-select v-model="customerForm.customer_level" placeholder="请选择客户分级">
-            <el-option label="A级" value="A" />
-            <el-option label="B级" value="B" />
-            <el-option label="C级" value="C" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="工作单位" prop="work_unit">
-          <el-input
-            v-model="customerForm.work_unit"
-            placeholder="请输入工作单位（选填）"
-            maxlength="100"
-            show-word-limit
-          />
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <el-button @click="closeCustomerDialog">取消</el-button>
-        <el-button type="primary" @click="saveCustomer">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, ChatLineSquare, Warning, Select, Plus, Refresh, Upload, Delete, User, Edit } from '@element-plus/icons-vue'
-import { useAuthStore } from '../stores/auth'
-import api from '../api/index.js'
+import { Loading, Warning, Plus, Upload, Close, Setting } from '@element-plus/icons-vue'
+import api from '../api'
 
-const router = useRouter()
-const authStore = useAuthStore()
+// 响应式数据
 const loading = ref(true)
-const refreshing = ref(false)
-const assignedRooms = ref([])
+const rooms = ref([])
 const selectedRoomId = ref(null)
 const currentRoom = ref(null)
 const qualityIssues = ref([])
-const communications = ref([])
-const currentCustomer = ref(null)
 
 // 对话框控制
-const communicationDialogVisible = ref(false)
 const qualityIssueDialogVisible = ref(false)
-const customerDialogVisible = ref(false)
-const editingCommunication = ref(null)
 const editingQualityIssue = ref(null)
 
-// 图片上传相关
-const uploadLoading = ref(false)
-
 // 表单引用
-const customerFormRef = ref(null)
+const qualityIssueFormRef = ref(null)
+const uploadRef = ref(null)
 
 // 表单数据
-const communicationForm = ref({
-  content: '',
-  feedback: '',
-  customer_description: '',
-  image: ''
-})
-
 const qualityIssueForm = ref({
   description: '',
-  issue_type: '',
+  issue_type: '质量瑕疵',
   record_date: '',
-  images: []
+  uploadedImages: []
 })
 
-const customerForm = ref({
-  name: '',
-  gender: '',
-  id_card: '',
-  phone: '',
-  customer_level: '',
-  work_unit: ''
+// 状态管理表单数据
+const statusForm = ref({
+  delivery_status: '',
+  contract_status: '',
+  letter_status: '',
+  expected_delivery_date: ''
 })
 
-// 客户信息表单验证规则
-const customerRules = {
-  name: [
-    { required: true, message: '请输入客户姓名', trigger: 'blur' },
-    { min: 2, max: 50, message: '姓名长度在 2 到 50 个字符', trigger: 'blur' }
-  ],
-  gender: [
-    { required: true, message: '请选择性别', trigger: 'change' }
-  ],
-  id_card: [
-    { required: true, message: '请输入身份证号', trigger: 'blur' },
-    { pattern: /^\d{17}[\dXx]$/, message: '身份证号格式不正确', trigger: 'blur' }
-  ],
-  phone: [
-    { required: true, message: '请输入手机号', trigger: 'blur' },
-    { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }
-  ],
-  customer_level: [
-    { required: true, message: '请选择客户分级', trigger: 'change' }
-  ]
-}
 
-// 获取分配给当前用户的房间
-const fetchAssignedRooms = async () => {
+const statusUpdateLoading = ref(false)
+
+// 组件挂载时获取数据
+onMounted(async () => {
+  await fetchRooms()
+  if (rooms.value.length > 0) {
+    selectRoom(rooms.value[0].id)
+  }
+  loading.value = false
+})
+
+// 获取房间列表
+const fetchRooms = async () => {
   try {
-    loading.value = true
-    console.log('正在获取房间分配信息...')
-    const assignmentsResponse = await api.get('/room-assignments/')
-    const assignments = assignmentsResponse.data
-    console.log('房间分配信息:', assignments)
+    const response = await api.get('/room-assignments/')
+    const assignments = response.data
     
-    const roomPromises = assignments.map(async (assignment) => {
-      const roomResponse = await api.get(`/rooms/${assignment.room_id}`)
-      const room = roomResponse.data
-      
-      const communicationsResponse = await api.get(`/communications/?room_id=${room.id}`)
-      const communications = communicationsResponse.data
-      
-      const issuesResponse = await api.get(`/quality-issues/?room_id=${room.id}`)
-      const issues = issuesResponse.data
-      const pendingVerification = issues.filter(issue => !issue.is_verified)
-      const pendingImplementation = communications.filter(comm => !comm.is_implemented)
-      
-      return {
-        ...room,
-        communication_count: communications.length,
-        quality_issue_count: issues.length,
-        pending_verification_count: pendingVerification.length,
-        pending_implementation_count: pendingImplementation.length
-      }
-    })
+    const roomsData = await Promise.all(
+      assignments.map(async (assignment) => {
+        const roomResponse = await api.get(`/rooms/${assignment.room_id}`)
+        const room = roomResponse.data
+        
+        const issuesResponse = await api.get(`/quality-issues/?room_id=${room.id}`)
+        const issues = issuesResponse.data
+        const pendingVerification = issues.filter(issue => issue.status === '待验收')
+        
+        return {
+          ...room,
+          quality_issue_count: issues.length,
+          pending_verification_count: pendingVerification.length
+        }
+      })
+    )
     
-    assignedRooms.value = await Promise.all(roomPromises)
-    
-    // 默认选择第一个房间
-    if (assignedRooms.value.length > 0 && !selectedRoomId.value) {
-      selectedRoomId.value = assignedRooms.value[0].id
-    }
+    rooms.value = roomsData
   } catch (error) {
-    console.error('获取房间信息失败:', error)
-    ElMessage.error('获取房间信息失败')
-  } finally {
-    loading.value = false
+    console.error('获取房间列表失败:', error)
+    ElMessage.error('获取房间列表失败')
   }
 }
 
-// 处理房间切换
-const handleRoomChange = (roomId) => {
-  const room = assignedRooms.value.find(r => r.id === roomId)
-  if (room) {
-    currentRoom.value = room
-    fetchRoomDetails(roomId)
-  }
+// 选择房间
+const selectRoom = async (roomId) => {
+  selectedRoomId.value = roomId
+  await fetchRoomDetails(roomId)
 }
 
-// 获取房间详细信息
+// 获取房间详情
 const fetchRoomDetails = async (roomId) => {
   try {
+    // 获取房间基本信息
+    const roomResponse = await api.get(`/rooms/${roomId}`)
+    currentRoom.value = roomResponse.data
+    
     // 获取质量问题
     const issuesResponse = await api.get(`/quality-issues/?room_id=${roomId}`)
-    qualityIssues.value = issuesResponse.data
+    // 按照录入时间和创建时间降序排序，新问题在前
+    qualityIssues.value = issuesResponse.data.sort((a, b) => {
+      const dateA = new Date(a.record_date || a.created_at)
+      const dateB = new Date(b.record_date || b.created_at)
+      return dateB - dateA
+    })
     
-    // 获取沟通记录
-    const communicationsResponse = await api.get(`/communications/?room_id=${roomId}`)
-    communications.value = communicationsResponse.data
+    // 更新统计数据
+    const pendingVerification = qualityIssues.value.filter(issue => issue.status === '待验收')
     
-    // 获取客户信息
-    try {
-      const customerResponse = await api.get(`/customers/room/${roomId}`)
-      currentCustomer.value = customerResponse.data
-    } catch (customerError) {
-      // 如果没有客户信息（404），这是正常情况
-      if (customerError.response?.status === 404) {
-        currentCustomer.value = null
-      } else {
-        console.error('获取客户信息失败:', customerError)
-      }
+    currentRoom.value = {
+      ...currentRoom.value,
+      quality_issue_count: qualityIssues.value.length,
+      pending_verification_count: pendingVerification.length
     }
+    
+    // 初始化状态管理表单
+    statusForm.value = {
+      delivery_status: currentRoom.value.delivery_status || '待交付',
+      contract_status: currentRoom.value.contract_status || '待签约', 
+      letter_status: currentRoom.value.letter_status || '无',
+      expected_delivery_date: currentRoom.value.expected_delivery_date || ''
+    }
+    
   } catch (error) {
     console.error('获取房间详情失败:', error)
     ElMessage.error('获取房间详情失败')
   }
 }
 
-// 监听房间选择变化
-watch(selectedRoomId, (newRoomId) => {
-  if (newRoomId) {
-    handleRoomChange(newRoomId)
-  }
-})
-
-// 格式化日期
-const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleDateString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  })
-}
-
-// 格式化日期时间（详细格式）
-const formatDateTime = (dateString) => {
-  if (!dateString) return ''
-  return new Date(dateString).toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
-}
-
-// 获取状态显示文本
-const getStatusText = (status) => {
-  const statusMap = {
-    '整改中': '整改中',
-    '验收完成': '验收完成',
-    '闭户': '闭户',
-    'under_renovation': '整改中',
-    'closed': '闭户',
-    'delivered': '已交付',
-    'contracted': '已签约'
-  }
-  return statusMap[status] || status
-}
-
-// 获取状态标签类型
+// 状态类型映射
 const getStatusType = (status) => {
   const typeMap = {
     '整改中': 'warning',
-    '验收完成': 'success',
     '闭户': 'info',
-    'under_renovation': 'warning',
-    'closed': 'info',
-    'delivered': 'success',
-    'contracted': 'primary'
+    '已交付': 'success',
+    '验收完成': 'success'
   }
   return typeMap[status] || 'info'
 }
 
-// 打开沟通记录对话框
-const openCommunicationDialog = () => {
-  editingCommunication.value = null
-  // 设置默认沟通时间为今天日期
-  const today = new Date().toISOString().split('T')[0]
-  communicationForm.value = {
-    content: '',
-    communication_time: today,
-    feedback: '',
-    customer_description: '',
-    image: ''
-  }
-  communicationDialogVisible.value = true
+const getIssueStatusType = (status) => {
+  return status === '已验收' ? 'success' : 'warning'
 }
 
-// 编辑沟通记录
-const editCommunication = (comm) => {
-  editingCommunication.value = comm
-  communicationForm.value = {
-    content: comm.content || '',
-    communication_time: comm.communication_time ? new Date(comm.communication_time).toISOString().split('T')[0] : '',
-    feedback: comm.feedback || '',
-    customer_description: comm.customer_description || '',
-    image: comm.image || ''
-  }
-  communicationDialogVisible.value = true
+// 格式化日期
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleString('zh-CN')
 }
 
-// 重置沟通记录表单
-const resetCommunicationForm = () => {
-  const today = new Date().toISOString().split('T')[0]
-  communicationForm.value = {
-    content: '',
-    communication_time: today,
-    feedback: '',
-    customer_description: '',
-    image: ''
-  }
-  ElMessage.success('表单已重置')
-}
-
-// 保存沟通记录
-const saveCommunication = async () => {
-  if (!communicationForm.value.content.trim()) {
-    ElMessage.error('请输入沟通内容')
-    return
-  }
-  
-  if (!communicationForm.value.communication_time) {
-    ElMessage.error('请选择沟通时间')
-    return
-  }
-  
-  if (!communicationForm.value.feedback) {
-    ElMessage.error('请选择核心诉求')
-    return
-  }
-  
-  try {
-    // 格式化日期为ISO格式
-    const communicationTime = communicationForm.value.communication_time ? 
-      new Date(communicationForm.value.communication_time + 'T00:00:00').toISOString() : null
-    
-    const data = {
-      room_id: selectedRoomId.value,
-      content: communicationForm.value.content,
-      communication_time: communicationTime,
-      feedback: communicationForm.value.feedback,
-      customer_description: communicationForm.value.customer_description,
-      image: communicationForm.value.image || null
-    }
-    
-    if (editingCommunication.value) {
-      // 编辑模式
-      await api.put(`/communications/${editingCommunication.value.id}`, data)
-      ElMessage.success('沟通记录更新成功')
-    } else {
-      // 新增模式
-      await api.post('/communications/', data)
-      ElMessage.success('沟通记录保存成功')
-    }
-    
-    communicationDialogVisible.value = false
-    editingCommunication.value = null
-    
-    // 刷新当前房间数据和汇总信息
-    await fetchRoomDetails(selectedRoomId.value)
-    await fetchAssignedRooms()
-    // 更新当前房间的统计信息
-    const updatedRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-    if (updatedRoom) {
-      currentRoom.value = updatedRoom
-    }
-  } catch (error) {
-    console.error('保存沟通记录失败:', error)
-    const action = editingCommunication.value ? '更新' : '保存'
-    ElMessage.error(`${action}沟通记录失败`)
-  }
-}
-
-// 图片上传相关方法
-const beforeImageUpload = (file) => {
-  const isImage = file.type.startsWith('image/')
-  const isLt2M = file.size / 1024 / 1024 < 2
-
-  if (!isImage) {
-    ElMessage.error('只能上传图片文件!')
-    return false
-  }
-  if (!isLt2M) {
-    ElMessage.error('图片大小不能超过 2MB!')
-    return false
-  }
-  return true
-}
-
-const handleImageUpload = async (options) => {
-  const { file } = options
-  const formData = new FormData()
-  formData.append('file', file)
-  
-  try {
-    uploadLoading.value = true
-    const response = await api.post('/upload-image/', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    })
-    
-    communicationForm.value.image = response.data.filename
-    ElMessage.success('图片上传成功')
-  } catch (error) {
-    console.error('图片上传失败:', error)
-    ElMessage.error('图片上传失败')
-  } finally {
-    uploadLoading.value = false
-  }
-}
-
-const handleUploadSuccess = () => {
-  // 成功回调已在handleImageUpload中处理
-}
-
-const handleUploadError = () => {
-  ElMessage.error('图片上传失败')
-  uploadLoading.value = false
-}
-
-const removeImage = () => {
-  communicationForm.value.image = ''
-  ElMessage.success('图片已删除')
+// 格式化日期 - 只显示年月日
+const formatDateOnly = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleDateString('zh-CN')
 }
 
 // 打开质量问题对话框
 const openQualityIssueDialog = () => {
   editingQualityIssue.value = null
-  // 设置默认录入时间为今天
   const today = new Date().toISOString().split('T')[0]
   qualityIssueForm.value = {
     description: '',
-    issue_type: '',
+    issue_type: '质量瑕疵',
     record_date: today,
-    images: []
+    uploadedImages: []
   }
   qualityIssueDialogVisible.value = true
 }
@@ -958,11 +497,23 @@ const editQualityIssue = (issue) => {
   editingQualityIssue.value = issue
   qualityIssueForm.value = {
     description: issue.description || '',
-    issue_type: issue.issue_type || '',
+    issue_type: issue.issue_type || '质量瑕疵',
     record_date: issue.record_date ? new Date(issue.record_date).toISOString().split('T')[0] : '',
-    images: []
+    uploadedImages: issue.images ? JSON.parse(issue.images) : []
   }
   qualityIssueDialogVisible.value = true
+}
+
+// 重置质量问题表单
+const resetQualityIssueForm = () => {
+  const today = new Date().toISOString().split('T')[0]
+  qualityIssueForm.value = {
+    description: '',
+    issue_type: '质量瑕疵',
+    record_date: today,
+    uploadedImages: []
+  }
+  ElMessage.success('表单已重置')
 }
 
 // 保存质量问题
@@ -972,18 +523,12 @@ const saveQualityIssue = async () => {
     return
   }
   
-  if (!qualityIssueForm.value.issue_type) {
-    ElMessage.error('请选择问题类型')
-    return
-  }
-  
   if (!qualityIssueForm.value.record_date) {
-    ElMessage.error('请选择完成时间')
+    ElMessage.error('请选择录入时间')
     return
   }
   
   try {
-    // 格式化日期为 YYYY-MM-DD HH:MM:SS 格式
     const recordDate = qualityIssueForm.value.record_date ? 
       new Date(qualityIssueForm.value.record_date + 'T00:00:00').toISOString() : null
     
@@ -992,29 +537,24 @@ const saveQualityIssue = async () => {
       description: qualityIssueForm.value.description,
       issue_type: qualityIssueForm.value.issue_type,
       record_date: recordDate,
+      images: JSON.stringify(qualityIssueForm.value.uploadedImages)
     }
     
     if (editingQualityIssue.value) {
-      // 编辑模式
       await api.put(`/quality-issues/${editingQualityIssue.value.id}`, data)
       ElMessage.success('质量问题更新成功')
     } else {
-      // 新增模式
       await api.post('/quality-issues/', data)
-      ElMessage.success('质量问题记录成功')
+      ElMessage.success('质量问题保存成功')
     }
     
     qualityIssueDialogVisible.value = false
     editingQualityIssue.value = null
     
-    // 刷新当前房间数据和汇总信息
+    // 刷新数据
     await fetchRoomDetails(selectedRoomId.value)
-    await fetchAssignedRooms()
-    // 更新当前房间的统计信息
-    const updatedRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-    if (updatedRoom) {
-      currentRoom.value = updatedRoom
-    }
+    await fetchRooms()
+    
   } catch (error) {
     console.error('保存质量问题失败:', error)
     const action = editingQualityIssue.value ? '更新' : '保存'
@@ -1022,23 +562,12 @@ const saveQualityIssue = async () => {
   }
 }
 
-// 重置质量问题表单
-const resetQualityIssueForm = () => {
-  const today = new Date().toISOString().split('T')[0]
-  qualityIssueForm.value = {
-    description: '',
-    issue_type: '',
-    record_date: today,
-    images: []
-  }
-}
-
 // 验收质量问题
-const verifyIssue = async (issue) => {
+const acceptIssue = async (issue) => {
   try {
     await ElMessageBox.confirm(
-      '确认验收此质量问题吗？',
-      '质量验收确认',
+      '确认验收此质量问题吗？验收后将标记为已验收状态。',
+      '验收确认',
       {
         confirmButtonText: '确认验收',
         cancelButtonText: '取消',
@@ -1046,20 +575,13 @@ const verifyIssue = async (issue) => {
       }
     )
     
-    await api.put(`/quality-issues/${issue.id}`, {
-      is_verified: true
-    })
-    
+    await api.put(`/quality-issues/${issue.id}/accept`)
     ElMessage.success('质量问题验收成功')
     
-    // 刷新当前房间数据和汇总信息
+    // 刷新数据
     await fetchRoomDetails(selectedRoomId.value)
-    await fetchAssignedRooms()
-    // 更新当前房间的统计信息
-    const updatedRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-    if (updatedRoom) {
-      currentRoom.value = updatedRoom
-    }
+    await fetchRooms()
+    
   } catch (error) {
     if (error !== 'cancel') {
       console.error('验收质量问题失败:', error)
@@ -1068,518 +590,270 @@ const verifyIssue = async (issue) => {
   }
 }
 
-// 标记沟通记录为已落实
-const markImplemented = async (comm) => {
+// 图片上传相关
+const beforeImageUpload = (file) => {
+  const isImage = file.type.startsWith('image/')
+  const isLt5M = file.size / 1024 / 1024 < 5
+  const hasSpace = qualityIssueForm.value.uploadedImages.length < 2
+
+  if (!isImage) {
+    ElMessage.error('只能上传图片文件!')
+    return false
+  }
+  if (!isLt5M) {
+    ElMessage.error('上传图片大小不能超过 5MB!')
+    return false
+  }
+  if (!hasSpace) {
+    ElMessage.error('最多只能上传2张图片!')
+    return false
+  }
+  return true
+}
+
+const uploadImage = async (options) => {
+  const formData = new FormData()
+  formData.append('file', options.file)
+  
   try {
-    await ElMessageBox.confirm(
-      '确认标记此沟通记录为已落实吗？',
-      '落实状态确认',
-      {
-        confirmButtonText: '确认落实',
-        cancelButtonText: '取消',
-        type: 'warning'
+    const response = await api.post('/upload-image/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
       }
-    )
-    
-    await api.put(`/communications/${comm.id}`, {
-      is_implemented: true
     })
     
-    ElMessage.success('沟通记录标记落实成功')
-    
-    // 刷新当前房间数据和汇总信息
-    await fetchRoomDetails(selectedRoomId.value)
-    await fetchAssignedRooms()
-    // 更新当前房间的统计信息
-    const updatedRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-    if (updatedRoom) {
-      currentRoom.value = updatedRoom
-    }
+    qualityIssueForm.value.uploadedImages.push(response.data.filename)
+    ElMessage.success('图片上传成功')
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('标记落实失败:', error)
-      ElMessage.error('标记落实失败')
-    }
+    console.error('图片上传失败:', error)
+    ElMessage.error('图片上传失败')
   }
 }
 
-// 刷新房间数据
-const refreshRoomData = async () => {
+const removeImage = (index) => {
+  qualityIssueForm.value.uploadedImages.splice(index, 1)
+  ElMessage.success('图片已删除')
+}
+
+// 状态管理相关方法
+const updateDeliveryStatus = async (value) => {
+  await updateSingleStatus('delivery_status', value)
+}
+
+const updateContractStatus = async (value) => {
+  await updateSingleStatus('contract_status', value)
+}
+
+const updateLetterStatus = async (value) => {
+  await updateSingleStatus('letter_status', value)
+}
+
+const updateExpectedDeliveryDate = async (value) => {
+  await updateSingleStatus('expected_delivery_date', value)
+}
+
+const updateSingleStatus = async (field, value) => {
   if (!selectedRoomId.value) return
   
+  statusUpdateLoading.value = true
   try {
-    refreshing.value = true
-    // 先刷新房间详情
-    await fetchRoomDetails(selectedRoomId.value)
-    // 再刷新所有房间的汇总信息
-    await fetchAssignedRooms()
-    // 更新当前房间的统计信息
-    const updatedRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-    if (updatedRoom) {
-      currentRoom.value = updatedRoom
-    }
-    ElMessage.success('汇总信息已更新')
+    const statusData = { [field]: value }
+    await api.put(`/rooms/${selectedRoomId.value}/ambassador-status`, statusData)
+    
+    // 更新当前房间信息
+    currentRoom.value[field] = value
+    ElMessage.success('状态更新成功')
   } catch (error) {
-    console.error('刷新数据失败:', error)
-    ElMessage.error('刷新数据失败')
+    console.error('状态更新失败:', error)
+    ElMessage.error('状态更新失败')
+    // 恢复原值
+    statusForm.value[field] = currentRoom.value[field]
   } finally {
-    refreshing.value = false
+    statusUpdateLoading.value = false
   }
 }
 
-// 更新交付状态
-const updateDeliveryStatus = async (newStatus) => {
-  try {
-    await api.put(`/rooms/${selectedRoomId.value}/delivery-status`, null, {
-      params: { delivery_status: newStatus }
-    })
-    ElMessage.success('交付状态更新成功')
-    // 更新本地状态
-    if (currentRoom.value) {
-      currentRoom.value.delivery_status = newStatus
-    }
-    // 更新房间列表中的状态
-    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
-    if (roomIndex !== -1) {
-      assignedRooms.value[roomIndex].delivery_status = newStatus
-    }
-  } catch (error) {
-    console.error('更新交付状态失败:', error)
-    ElMessage.error('更新交付状态失败')
-    // 恢复原状态
-    if (currentRoom.value) {
-      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-      if (originalRoom) {
-        currentRoom.value.delivery_status = originalRoom.delivery_status
-      }
-    }
-  }
-}
-
-// 更新签约状态
-const updateContractStatus = async (newStatus) => {
-  try {
-    await api.put(`/rooms/${selectedRoomId.value}/contract-status`, null, {
-      params: { contract_status: newStatus }
-    })
-    ElMessage.success('签约状态更新成功')
-    // 更新本地状态
-    if (currentRoom.value) {
-      currentRoom.value.contract_status = newStatus
-    }
-    // 更新房间列表中的状态
-    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
-    if (roomIndex !== -1) {
-      assignedRooms.value[roomIndex].contract_status = newStatus
-    }
-  } catch (error) {
-    console.error('更新签约状态失败:', error)
-    ElMessage.error('更新签约状态失败')
-    // 恢复原状态
-    if (currentRoom.value) {
-      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-      if (originalRoom) {
-        currentRoom.value.contract_status = originalRoom.contract_status
-      }
-    }
-  }
-}
-
-// 更新信件状态
-const updateLetterStatus = async (newStatus) => {
-  try {
-    await api.put(`/rooms/${selectedRoomId.value}/letter-status`, null, {
-      params: { letter_status: newStatus }
-    })
-    ElMessage.success('信件状态更新成功')
-    // 更新本地状态
-    if (currentRoom.value) {
-      currentRoom.value.letter_status = newStatus
-    }
-    // 更新房间列表中的状态
-    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
-    if (roomIndex !== -1) {
-      assignedRooms.value[roomIndex].letter_status = newStatus
-    }
-  } catch (error) {
-    console.error('更新信件状态失败:', error)
-    ElMessage.error('更新信件状态失败')
-    // 恢复原状态
-    if (currentRoom.value) {
-      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-      if (originalRoom) {
-        currentRoom.value.letter_status = originalRoom.letter_status
-      }
-    }
-  }
-}
-
-// 更新前期渗漏状态
-const updatePreLeakage = async (newStatus) => {
-  try {
-    await api.put(`/rooms/${selectedRoomId.value}/pre-leakage`, null, {
-      params: { pre_leakage: newStatus }
-    })
-    ElMessage.success('前期渗漏状态更新成功')
-    // 更新本地状态
-    if (currentRoom.value) {
-      currentRoom.value.pre_leakage = newStatus
-    }
-    // 更新房间列表中的状态
-    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
-    if (roomIndex !== -1) {
-      assignedRooms.value[roomIndex].pre_leakage = newStatus
-    }
-  } catch (error) {
-    console.error('更新前期渗漏状态失败:', error)
-    ElMessage.error('更新前期渗漏状态失败')
-    // 恢复原状态
-    if (currentRoom.value) {
-      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-      if (originalRoom) {
-        currentRoom.value.pre_leakage = originalRoom.pre_leakage
-      }
-    }
-  }
-}
-
-// 更新预计交付时间
-const updateExpectedDeliveryDate = async (newDate) => {
-  try {
-    await api.put(`/rooms/${selectedRoomId.value}/expected-delivery-date`, null, {
-      params: { expected_delivery_date: newDate }
-    })
-    ElMessage.success('预计交付时间更新成功')
-    // 更新本地状态
-    if (currentRoom.value) {
-      currentRoom.value.expected_delivery_date = newDate
-    }
-    // 更新房间列表中的状态
-    const roomIndex = assignedRooms.value.findIndex(r => r.id === selectedRoomId.value)
-    if (roomIndex !== -1) {
-      assignedRooms.value[roomIndex].expected_delivery_date = newDate
-    }
-  } catch (error) {
-    console.error('更新预计交付时间失败:', error)
-    ElMessage.error('更新预计交付时间失败')
-    // 恢复原状态
-    if (currentRoom.value) {
-      const originalRoom = assignedRooms.value.find(r => r.id === selectedRoomId.value)
-      if (originalRoom) {
-        currentRoom.value.expected_delivery_date = originalRoom.expected_delivery_date
-      }
-    }
-  }
-}
-
-// 客户信息相关方法
-const getCustomerLevelType = (level) => {
-  const typeMap = {
-    'A': 'success',
-    'B': 'warning', 
-    'C': 'danger'
-  }
-  return typeMap[level] || 'info'
-}
-
-const formatIdCard = (idCard) => {
-  if (!idCard) return ''
-  // 隐藏身份证号中间部分，只显示前4位和后4位
-  return idCard.slice(0, 4) + '**********' + idCard.slice(-4)
-}
-
-const openCustomerDialog = (customer = null) => {
-  if (customer) {
-    // 编辑模式
-    customerForm.value = {
-      name: customer.name,
-      gender: customer.gender,
-      id_card: customer.id_card,
-      phone: customer.phone,
-      customer_level: customer.customer_level,
-      work_unit: customer.work_unit || ''
-    }
-  } else {
-    // 新建模式
-    customerForm.value = {
-      name: '',
-      gender: '',
-      id_card: '',
-      phone: '',
-      customer_level: '',
-      work_unit: ''
-    }
-  }
-  customerDialogVisible.value = true
-}
-
-const saveCustomer = async () => {
-  // 使用表单验证
-  if (!customerFormRef.value) return
+const batchUpdateStatus = async () => {
+  if (!selectedRoomId.value) return
   
+  statusUpdateLoading.value = true
   try {
-    // 验证表单
-    await customerFormRef.value.validate()
-    
-    if (currentCustomer.value) {
-      // 更新客户信息
-      await api.put(`/customers/${currentCustomer.value.id}`, customerForm.value)
-      ElMessage.success('客户信息更新成功')
-    } else {
-      // 创建客户信息
-      await api.post('/customers/', {
-        ...customerForm.value,
-        room_id: selectedRoomId.value
-      })
-      ElMessage.success('客户信息录入成功')
+    const statusData = {
+      delivery_status: statusForm.value.delivery_status,
+      contract_status: statusForm.value.contract_status,
+      letter_status: statusForm.value.letter_status,
+      expected_delivery_date: statusForm.value.expected_delivery_date
     }
     
-    customerDialogVisible.value = false
-    // 重置表单
-    if (customerFormRef.value) {
-      customerFormRef.value.resetFields()
-    }
-    // 刷新客户信息
-    await fetchRoomDetails(selectedRoomId.value)
-  } catch (validationError) {
-    // 如果是表单验证错误，不显示错误消息（Element Plus会自动显示）
-    if (validationError && typeof validationError === 'object' && validationError.response) {
-      // 这是API错误
-      console.error('保存客户信息失败:', validationError)
-      const errorMsg = validationError.response?.data?.detail || '保存客户信息失败'
-      ElMessage.error(errorMsg)
-    }
-    // 否则是表单验证失败，Element Plus已经显示了验证消息
-  }
-}
-
-const closeCustomerDialog = () => {
-  customerDialogVisible.value = false
-  // 重置表单
-  if (customerFormRef.value) {
-    customerFormRef.value.resetFields()
-  }
-}
-
-const deleteCustomerInfo = async () => {
-  try {
-    await ElMessageBox.confirm(
-      '确认删除此客户信息吗？删除后无法恢复。',
-      '删除确认',
-      {
-        confirmButtonText: '确认删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
+    await api.put(`/rooms/${selectedRoomId.value}/ambassador-status`, statusData)
     
-    await api.delete(`/customers/${currentCustomer.value.id}`)
-    ElMessage.success('客户信息删除成功')
-    
-    currentCustomer.value = null
+    // 更新当前房间信息
+    Object.assign(currentRoom.value, statusData)
+    ElMessage.success('房间状态批量更新成功')
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('删除客户信息失败:', error)
-      ElMessage.error('删除客户信息失败')
-    }
+    console.error('批量更新状态失败:', error)
+    ElMessage.error('批量更新状态失败')
+    // 恢复原值
+    statusForm.value[field] = currentRoom.value[field]
+  } finally {
+    statusUpdateLoading.value = false
   }
 }
 
-onMounted(() => {
-  console.log('客户大使界面加载，当前用户:', authStore.user)
-  console.log('用户角色:', authStore.user?.role)
-  console.log('是否为客户大使:', authStore.isCustomerAmbassador)
-  console.log('认证token存在:', !!authStore.token)
-  fetchAssignedRooms()
-})
 </script>
 
 <style scoped>
 .ambassador-dashboard {
   padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
+  background-color: #f5f5f5;
+  min-height: 100vh;
 }
 
 .dashboard-header {
-  margin-bottom: 32px;
   text-align: center;
+  margin-bottom: 30px;
 }
 
 .dashboard-header h3 {
-  margin: 0 0 8px 0;
   font-size: 28px;
   color: #303133;
-  font-weight: 600;
+  margin-bottom: 8px;
 }
 
 .role-description {
-  margin: 0;
-  color: #909399;
+  color: #606266;
   font-size: 16px;
 }
 
 .loading {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 40px;
+  justify-content: center;
+  height: 300px;
   color: #909399;
 }
 
-.no-rooms {
-  padding: 40px;
-  text-align: center;
-}
-
-.room-selector {
-  margin-bottom: 24px;
-  text-align: center;
-}
-
-.customer-info-card {
-  margin-bottom: 24px;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 16px;
-  color: #303133;
-}
-
-.header-actions .customer-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.no-customer {
-  text-align: center;
-  padding: 20px;
-}
-
-.customer-details {
-  padding: 16px 0;
-}
-
-.customer-info-row {
-  display: flex;
-  gap: 24px;
+.loading .el-icon {
+  font-size: 48px;
   margin-bottom: 16px;
-  align-items: center;
 }
 
-.customer-info-row:last-child {
-  margin-bottom: 0;
-}
-
-.info-item {
+.empty-state {
   display: flex;
+  justify-content: center;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
+  height: 400px;
 }
 
-.info-item.full-width {
-  flex: 1;
-  min-width: 100%;
+.dashboard-content {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  min-height: calc(100vh - 150px);
 }
 
-.info-label {
-  color: #606266;
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
+.rooms-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  height: fit-content;
+  max-height: 100%;
 }
 
-.info-value {
-  color: #303133;
-  font-size: 14px;
-  font-weight: 400;
-  word-break: break-all;
+.room-card .el-card {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
 }
 
-.current-room-info {
-  margin-bottom: 24px;
+.room-card .el-card:hover {
+  border-color: #409eff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.15);
+}
+
+.room-card .el-card.active-room {
+  border-color: #409eff;
+  background-color: #f0f9ff;
 }
 
 .room-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.room-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.room-info h4 {
-  margin: 0;
-  font-size: 18px;
-  color: #303133;
-}
-
-.status-tags {
-  display: flex;
-  gap: 8px;
-}
-
-.room-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.status-controls {
-  display: flex;
-  gap: 16px;
-}
-
-.control-group {
-  display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  margin-bottom: 16px;
 }
 
-.control-group label {
-  color: #606266;
-  white-space: nowrap;
-  font-weight: 500;
+.room-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .room-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .stat-item {
   text-align: center;
 }
 
-.function-modules {
+.room-details {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.room-info-card {
+  flex-shrink: 0;
+}
+
+.room-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.room-info-header h4 {
+  margin: 0;
+  font-size: 18px;
+  color: #303133;
+}
+
+.room-info-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-item label {
+  font-weight: 600;
+  color: #606266;
+  min-width: 100px;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #ebeef5;
 }
 
 .module-card {
-  height: fit-content;
+  flex: 1;
 }
 
 .module-header {
@@ -1592,179 +866,163 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
   font-size: 16px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .module-content {
-  max-height: 400px;
-  overflow-y: auto;
+  /* 移除固定高度，让内容自然流动 */
 }
 
 .empty-content {
-  text-align: center;
-  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
 }
 
-.issues-list,
-.communications-list {
-  space: 16px 0;
+.issues-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.issue-item,
-.communication-item {
+.issue-item {
   border: 1px solid #e4e7ed;
   border-radius: 8px;
   padding: 16px;
-  margin-bottom: 12px;
   background-color: #fafafa;
+  transition: all 0.3s ease;
+}
+
+.issue-item:hover {
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
 }
 
 .issue-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-}
-
-.comm-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.issue-date {
-  font-size: 12px;
-  color: #909399;
-}
-
-.comm-date {
-  font-size: 14px;
-  color: #409EFF;
-  font-weight: 600;
-}
-
-.comm-time {
-  font-size: 14px;
-  color: #606266;
-  font-weight: 500;
-}
-
-.comm-author {
-  font-size: 12px;
-  color: #606266;
-}
-
-.issue-description {
-  margin: 8px 0;
-  color: #606266;
-  line-height: 1.5;
-}
-
-.issue-actions {
-  margin-top: 12px;
-}
-
-.comm-content {
-  margin-top: 8px;
-}
-
-.comm-section {
   margin-bottom: 12px;
 }
 
-.comm-section strong {
-  color: #303133;
-  font-size: 14px;
+.issue-date {
+  font-size: 13px;
+  color: #909399;
 }
 
-.comm-section p {
-  margin: 4px 0 0 0;
-  color: #606266;
-  line-height: 1.5;
+.issue-content {
+  margin-bottom: 12px;
 }
 
-.comm-actions {
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid #f0f0f0;
-}
-
-/* 图片预览样式 */
-.image-preview-container {
-  margin-top: 12px;
-  padding: 12px;
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #e4e7ed;
-}
-
-.image-wrapper {
-  display: flex;
-  justify-content: center;
+.issue-section {
   margin-bottom: 8px;
 }
 
+.issue-section strong {
+  color: #606266;
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.issue-section p {
+  margin: 4px 0;
+  color: #303133;
+  line-height: 1.5;
+}
+
+.issue-images {
+  margin-top: 12px;
+}
+
+.images-container {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .preview-image {
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1px solid #dcdfe6;
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
 }
 
 .preview-image:hover {
   border-color: #409eff;
-  box-shadow: 0 4px 8px rgba(64, 158, 255, 0.2);
+  transform: scale(1.05);
 }
 
-.image-actions {
+.issue-actions {
   display: flex;
-  justify-content: center;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
-@media (max-width: 768px) {
-  .function-modules {
-    grid-template-columns: 1fr;
-  }
-  
-  .room-stats {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-  
-  .room-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  
-  .room-controls {
-    align-items: stretch;
-  }
-  
-  .status-controls {
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  .control-group {
-    justify-content: space-between;
-  }
+.uploaded-images {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
 
-  .customer-info-row {
-    flex-direction: column;
-    gap: 12px;
-  }
+.image-item {
+  position: relative;
+}
 
-  .info-item {
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid #f0f0f0;
-  }
+.preview-img {
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+}
 
-  .info-item:last-child {
-    border-bottom: none;
-  }
+.remove-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.status-management-card {
+  margin-bottom: 20px;
+}
+
+.status-management-horizontal {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 16px;
+  flex-wrap: wrap;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.status-item label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  white-space: nowrap;
+}
+
+.status-item .el-select {
+  width: 140px;
+}
+
+.status-item .el-date-picker {
+  width: 150px;
+  min-width: 150px;
+}
+
+.status-item .el-text {
+  font-size: 11px;
+  line-height: 1.2;
 }
 </style>
