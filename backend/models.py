@@ -59,9 +59,13 @@ class QualityIssue(Base):
     description = Column(Text)
     issue_type = Column(String, default="质量瑕疵")  # 质量瑕疵, 材料备货
     images = Column(Text)  # JSON字符串存储图片路径
-    status = Column(String, default="待验收")  # 待验收, 已验收
+    status = Column(String, default="待验收")  # 待验收, 已验收, 需复验
     accepted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     accepted_at = Column(DateTime, nullable=True)
+    revoked_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 撤销验收的用户ID
+    revoked_at = Column(DateTime, nullable=True)  # 撤销时间
+    reverified_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 复验的用户ID
+    reverified_at = Column(DateTime, nullable=True)  # 复验时间
     record_date = Column(DateTime, nullable=True)  # 录入时间（用户指定的日期）
     created_at = Column(DateTime, server_default=func.now())
     
@@ -69,6 +73,8 @@ class QualityIssue(Base):
     room = relationship("Room", back_populates="quality_issues")
     user = relationship("User", back_populates="quality_issues", foreign_keys=[user_id])
     acceptor = relationship("User", foreign_keys=[accepted_by])
+    revoker = relationship("User", foreign_keys=[revoked_by])
+    reverifier = relationship("User", foreign_keys=[reverified_by])
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -81,6 +87,8 @@ class Customer(Base):
     phone = Column(String(11), nullable=False)  # 手机号
     customer_level = Column(String, nullable=False)  # 客户分级：A/B/C
     work_unit = Column(String, nullable=True)  # 工作单位（选填）
+    second_name = Column(String, nullable=True)  # 第二户主姓名
+    second_phone = Column(String(11), nullable=True)  # 第二户主手机号
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     

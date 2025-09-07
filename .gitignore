@@ -182,7 +182,6 @@ secrets.json
 
 # 项目特定的临时文件
 deploy.py
-start_dev.py
 start-frontend.bat
 add_expected_delivery_date.py
 clean_test_data.py

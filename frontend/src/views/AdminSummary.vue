@@ -81,7 +81,23 @@
       
       <el-table :data="paginatedRooms" v-loading="loading" max-height="500">
         <el-table-column prop="building_unit" label="楼栋" width="80" />
-        <el-table-column prop="room_number" label="房间号" width="80" />
+        <el-table-column prop="room_number" label="房间号" width="80">
+          <template #default="scope">
+            <span>{{ formatRoomNumber(scope.row.room_number) }}</span>
+          </template>
+        </el-table-column>
+        
+        <!-- 户主信息列 -->
+        <el-table-column prop="owner_name" label="户主姓名" width="120">
+          <template #default="scope">
+            <span>{{ scope.row.owner_name || '未录入' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="owner_phone" label="手机号码" width="140">
+          <template #default="scope">
+            <span>{{ scope.row.owner_phone || '未录入' }}</span>
+          </template>
+        </el-table-column>
         
         <!-- 三类状态列 -->
         <el-table-column prop="status" label="整改状态" width="90">
@@ -156,14 +172,16 @@
         />
       </div>
     </el-card>
+
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { adminAPI } from '../api'
-import { ElMessage } from 'element-plus'
+import * as API from '../api/index.js'
+const { adminAPI } = API
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { House, Tools, CircleCheck, SuccessFilled } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -375,6 +393,19 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('zh-CN')
 }
 
+const formatRoomNumber = (roomNumber) => {
+  if (!roomNumber) return roomNumber
+  
+  // 如果房间号是4位数字且前两位是03-09，去掉前导0
+  if (/^0[3-9]\d{2}$/.test(roomNumber)) {
+    return roomNumber.substring(1)
+  }
+  
+  // 其他情况保持原样（如1201等高楼层）
+  return roomNumber
+}
+
+
 onMounted(() => {
   fetchSummary()
 })
@@ -473,4 +504,5 @@ onMounted(() => {
   padding: 15px 0;
   border-top: 1px solid #ebeef5;
 }
+
 </style>

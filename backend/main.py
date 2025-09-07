@@ -182,6 +182,16 @@ def accept_quality_issue(issue_id: int, db: Session = Depends(get_db),
                         current_user: models.User = Depends(auth.get_current_user)):
     return crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
 
+@app.put("/quality-issues/{issue_id}/revoke")
+def revoke_quality_issue(issue_id: int, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    return crud.revoke_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+
+@app.put("/quality-issues/{issue_id}/reverify")
+def reverify_quality_issue(issue_id: int, db: Session = Depends(get_db),
+                          current_user: models.User = Depends(auth.get_current_user)):
+    return crud.reverify_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+
 @app.put("/quality-issues/{issue_id}", response_model=schemas.QualityIssue)
 def update_quality_issue(issue_id: int, issue_update: dict, db: Session = Depends(get_db),
                         current_user: models.User = Depends(auth.get_current_user)):
@@ -467,6 +477,30 @@ def clear_all_rooms_content(db: Session = Depends(get_db),
         raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
     
     result = crud.clear_all_rooms_content(db=db)
+    return result
+
+# Excel导入户主信息接口
+@app.post("/admin/import-room-owners", response_model=schemas.OwnerImportResult)
+def import_room_owners(owner_data: List[schemas.OwnerImportItem], 
+                      db: Session = Depends(get_db),
+                      current_user: models.User = Depends(auth.get_current_user)):
+    """批量导入房间户主信息"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，只有管理员可以导入数据")
+    
+    # 转换为dict格式
+    owner_dict_data = []
+    for item in owner_data:
+        owner_dict_data.append({
+            'building_unit': item.building_unit,
+            'room_number': item.room_number,
+            'owner_name1': item.owner_name1,
+            'owner_phone1': item.owner_phone1,
+            'owner_name2': item.owner_name2,
+            'owner_phone2': item.owner_phone2,
+        })
+    
+    result = crud.import_room_owners(db=db, owner_data=owner_dict_data)
     return result
 
 if __name__ == "__main__":

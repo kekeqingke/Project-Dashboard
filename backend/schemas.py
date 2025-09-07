@@ -73,6 +73,10 @@ class RoomSummary(RoomBase):
     # Latest feedback
     latest_feedback: str = ""
     
+    # Customer/Owner information
+    owner_name: Optional[str] = None  # 户主姓名（格式化后的）
+    owner_phone: Optional[str] = None  # 户主手机号（格式化后的）
+    
     class Config:
         from_attributes = True
 
@@ -104,19 +108,29 @@ class QualityIssue(QualityIssueBase):
     issue_type: str
     accepted_by: Optional[int] = None
     accepted_at: Optional[datetime] = None
+    revoked_by: Optional[int] = None
+    revoked_at: Optional[datetime] = None
+    reverified_by: Optional[int] = None
+    reverified_at: Optional[datetime] = None
     record_date: Optional[datetime] = None  # 录入时间
     created_at: datetime
     
     # 用户相关字段
     user_name: Optional[str] = None
     user_role: Optional[str] = None
+    acceptor_name: Optional[str] = None
+    acceptor_role: Optional[str] = None
+    revoker_name: Optional[str] = None
+    revoker_role: Optional[str] = None
+    reverifier_name: Optional[str] = None
+    reverifier_role: Optional[str] = None
     
     is_verified: Optional[bool] = None
     
     def model_post_init(self, __context) -> None:
         """模型初始化后设置is_verified字段"""
         if hasattr(self, 'status'):
-            self.is_verified = self.status == "已验收"
+            self.is_verified = self.status in ["已验收", "已复验"]
     
     class Config:
         from_attributes = True
@@ -130,6 +144,8 @@ class CustomerBase(BaseModel):
     phone: str
     customer_level: str
     work_unit: Optional[str] = None
+    second_name: Optional[str] = None  # 第二户主姓名
+    second_phone: Optional[str] = None  # 第二户主手机号
     
     @field_validator('gender')
     @classmethod
@@ -153,6 +169,13 @@ class CustomerBase(BaseModel):
             raise ValueError('手机号码格式不正确')
         return v
     
+    @field_validator('second_phone')
+    @classmethod
+    def validate_second_phone(cls, v):
+        if v and not re.match(r'^1[3-9]\d{9}$', v):
+            raise ValueError('第二户主手机号码格式不正确')
+        return v
+    
     @field_validator('customer_level')
     @classmethod
     def validate_customer_level(cls, v):
@@ -174,3 +197,19 @@ class Customer(CustomerBase):
     
     class Config:
         from_attributes = True
+
+# Excel导入相关schemas
+class OwnerImportItem(BaseModel):
+    building_unit: str  # 楼栋
+    room_number: str    # 房间号
+    owner_name1: Optional[str] = None    # 户主姓名1
+    owner_phone1: Optional[str] = None   # 手机号码1
+    owner_name2: Optional[str] = None    # 户主姓名2（可选）
+    owner_phone2: Optional[str] = None   # 手机号码2（可选）
+
+class OwnerImportResult(BaseModel):
+    success: bool
+    total: int
+    updated: int
+    created: int
+    errors: List[str] = []

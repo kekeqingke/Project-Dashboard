@@ -71,7 +71,8 @@ export const communicationAPI = {
 }
 
 export const adminAPI = {
-  getSummary: (buildingUnit) => api.get('/admin/summary', { params: { building_unit: buildingUnit } })
+  getSummary: (buildingUnit) => api.get('/admin/summary', { params: { building_unit: buildingUnit } }),
+  importRoomOwners: (ownerData) => api.post('/admin/import-room-owners', ownerData)
 }
 
 export const customerAPI = {

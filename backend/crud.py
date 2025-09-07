@@ -191,13 +191,28 @@ def get_quality_issues(db: Session, room_id: Optional[int] = None, user_id: Opti
         issue.user_name = issue.user.name if issue.user else "未知用户"
         issue.user_role = issue.user.role if issue.user else ""
         # 设置is_verified字段（保证前端工作台兼容性）
-        issue.is_verified = issue.status == "已验收"
+        issue.is_verified = issue.status in ["已验收", "已复验"]
+        
         # 添加验收人信息
         if issue.accepted_by:
             acceptor = db.query(models.User).filter(models.User.id == issue.accepted_by).first()
             if acceptor:
                 issue.acceptor_name = acceptor.name
                 issue.acceptor_role = acceptor.role
+        
+        # 添加撤销人信息
+        if issue.revoked_by:
+            revoker = db.query(models.User).filter(models.User.id == issue.revoked_by).first()
+            if revoker:
+                issue.revoker_name = revoker.name
+                issue.revoker_role = revoker.role
+        
+        # 添加复验人信息
+        if issue.reverified_by:
+            reverifier = db.query(models.User).filter(models.User.id == issue.reverified_by).first()
+            if reverifier:
+                issue.reverifier_name = reverifier.name
+                issue.reverifier_role = reverifier.role
     return issues
 
 def create_quality_issue(db: Session, issue: schemas.QualityIssueCreate, user_id: int):
@@ -217,6 +232,38 @@ def accept_quality_issue(db: Session, issue_id: int, user_id: int):
         issue.status = "已验收"
         issue.accepted_by = user_id
         issue.accepted_at = datetime.now()
+        # 清除撤销和复验相关字段（如果是复验操作会在reverify函数中处理）
+        if issue.revoked_by:
+            issue.reverified_by = user_id
+            issue.reverified_at = datetime.now()
+        db.commit()
+        
+        # 检查房间是否可以设置为"闭户"
+        update_room_status(db, issue.room_id)
+        return issue
+    return None
+
+def revoke_quality_issue(db: Session, issue_id: int, user_id: int):
+    from datetime import datetime
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+    if issue and issue.status == "已验收":
+        issue.status = "需复验"
+        issue.revoked_by = user_id
+        issue.revoked_at = datetime.now()
+        db.commit()
+        
+        # 更新房间状态为"整改中"
+        update_room_status(db, issue.room_id)
+        return issue
+    return None
+
+def reverify_quality_issue(db: Session, issue_id: int, user_id: int):
+    from datetime import datetime
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+    if issue and issue.status == "需复验":
+        issue.status = "已复验"  # 复验后状态为"已复验"，这是最终状态
+        issue.reverified_by = user_id
+        issue.reverified_at = datetime.now()
         db.commit()
         
         # 检查房间是否可以设置为"闭户"
@@ -255,13 +302,13 @@ def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.Quali
 def update_room_status(db: Session, room_id: int):
     """
     自动更新房间整改状态：
-    - 如果有待验收的质量问题，状态为"整改中"
+    - 如果有待验收或需复验的质量问题，状态为"整改中"
     - 如果所有质量问题都已验收，状态为"闭户"
     """
-    # 检查是否有未验收的质量问题
+    # 检查是否有未完成的质量问题（待验收或需复验）
     pending_issues = db.query(models.QualityIssue).filter(
         models.QualityIssue.room_id == room_id,
-        models.QualityIssue.status == "待验收"
+        models.QualityIssue.status.in_(["待验收", "需复验"])
     ).count()
     
     room = db.query(models.Room).filter(models.Room.id == room_id).first()
@@ -333,15 +380,41 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
         contract_count[room.contract_status] = contract_count.get(room.contract_status, 0) + 1
         
         # 获取质量问题统计和详情
-        pending_issues = db.query(models.QualityIssue).filter(
-            models.QualityIssue.room_id == room.id,
-            models.QualityIssue.status == "待验收"
-        ).order_by(desc(func.coalesce(models.QualityIssue.record_date, models.QualityIssue.created_at))).all()
+        all_issues = db.query(models.QualityIssue).filter(
+            models.QualityIssue.room_id == room.id
+        ).all()
         
-        # 获取最新的待验收问题详情
-        latest_pending_issue = pending_issues[0] if pending_issues else None
+        pending_issues = [issue for issue in all_issues if issue.status == "待验收"]
+        reverification_issues = [issue for issue in all_issues if issue.status == "需复验"]
+        accepted_issues = [issue for issue in all_issues if issue.status in ["已验收", "已复验"]]
+        
+        # 获取最新的待处理问题详情（待验收或需复验）
+        pending_and_reverify = pending_issues + reverification_issues
+        latest_pending_issue = None
+        if pending_and_reverify:
+            latest_pending_issue = max(pending_and_reverify, 
+                                     key=lambda x: x.record_date or x.created_at)
         
         # 沟通记录相关功能已删除
+        
+        # 获取户主信息
+        customer = db.query(models.Customer).filter(models.Customer.room_id == room.id).first()
+        owner_name = ""
+        owner_phone = ""
+        
+        if customer:
+            # 格式化户主姓名和手机号
+            names = [customer.name]
+            phones = [customer.phone]
+            
+            if customer.second_name:
+                names.append(customer.second_name)
+            if customer.second_phone:
+                phones.append(customer.second_phone)
+            
+            # 只有在有多个时才用"/"分隔
+            owner_name = "/".join(names) if len(names) > 1 else names[0] if names else ""
+            owner_phone = "/".join(phones) if len(phones) > 1 else phones[0] if phones else ""
         
         # 构建带聚合数据的房间对象
         room_summary = {
@@ -357,8 +430,14 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'created_at': room.created_at,
             'updated_at': room.updated_at,
             
+            # 户主信息
+            'owner_name': owner_name,
+            'owner_phone': owner_phone,
+            
             # 聚合的质量问题信息
             'pending_issues_count': len(pending_issues),
+            'reverification_issues_count': len(reverification_issues),
+            'accepted_issues_count': len(accepted_issues),
             'latest_issue_description': latest_pending_issue.description if latest_pending_issue else "",
             'latest_issue_type': latest_pending_issue.issue_type if latest_pending_issue else "",
             'latest_issue_record_date': latest_pending_issue.record_date if latest_pending_issue else None,
@@ -499,3 +578,90 @@ def check_id_card_exists(db: Session, id_card: str, exclude_customer_id: int = N
     if exclude_customer_id:
         query = query.filter(models.Customer.id != exclude_customer_id)
     return query.first() is not None
+
+def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
+    """批量导入房间户主信息"""
+    total = len(owner_data)
+    updated = 0
+    created = 0
+    errors = []
+    
+    for i, row in enumerate(owner_data, 1):
+        try:
+            # 验证必填字段
+            if not row.get('building_unit') or not row.get('room_number'):
+                errors.append(f"第{i}行：楼栋和房间号不能为空")
+                continue
+            
+            # 查找对应的房间
+            room = db.query(models.Room).filter(
+                models.Room.building_unit == row['building_unit'],
+                models.Room.room_number == row['room_number']
+            ).first()
+            
+            if not room:
+                errors.append(f"第{i}行：未找到对应房间 {row['building_unit']} {row['room_number']}")
+                continue
+            
+            # 查找是否已有客户信息
+            customer = db.query(models.Customer).filter(
+                models.Customer.room_id == room.id
+            ).first()
+            
+            # 准备户主数据
+            owner_name1 = row.get('owner_name1', '').strip() if row.get('owner_name1') else None
+            owner_phone1 = row.get('owner_phone1', '').strip() if row.get('owner_phone1') else None
+            owner_name2 = row.get('owner_name2', '').strip() if row.get('owner_name2') else None
+            owner_phone2 = row.get('owner_phone2', '').strip() if row.get('owner_phone2') else None
+            
+            # 至少需要一个户主信息
+            if not owner_name1 and not owner_phone1:
+                errors.append(f"第{i}行：至少需要填写一个户主的姓名或手机号")
+                continue
+            
+            if customer:
+                # 更新现有客户信息的户主字段
+                if owner_name1:
+                    customer.name = owner_name1
+                if owner_phone1:
+                    customer.phone = owner_phone1
+                if owner_name2:
+                    customer.second_name = owner_name2
+                if owner_phone2:
+                    customer.second_phone = owner_phone2
+                
+                db.commit()
+                updated += 1
+            else:
+                # 创建新的客户记录（需要完整信息）
+                if not owner_name1 or not owner_phone1:
+                    errors.append(f"第{i}行：新建客户记录需要完整的主户主信息（姓名和手机号）")
+                    continue
+                
+                # 创建基础客户信息（使用默认值）
+                new_customer = models.Customer(
+                    room_id=room.id,
+                    name=owner_name1,
+                    gender='男',  # 默认值
+                    id_card=f'TEMP{room.id:010d}',  # 临时身份证号
+                    phone=owner_phone1,
+                    customer_level='C',  # 默认等级
+                    second_name=owner_name2,
+                    second_phone=owner_phone2
+                )
+                
+                db.add(new_customer)
+                db.commit()
+                created += 1
+                
+        except Exception as e:
+            errors.append(f"第{i}行：处理失败 - {str(e)}")
+            db.rollback()
+    
+    return {
+        'success': len(errors) == 0,
+        'total': total,
+        'updated': updated,
+        'created': created,
+        'errors': errors
+    }

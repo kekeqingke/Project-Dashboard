@@ -27,12 +27,15 @@
               <el-tag :type="getStatusType(room.status)">{{ room.status }}</el-tag>
             </div>
             
-            <div class="room-stats">
+            <div class="room-stats" :class="{ 'three-stats': room.reverification_count > 0 }">
               <div class="stat-item">
                 <el-statistic title="质量问题" :value="room.quality_issue_count || 0" />
               </div>
               <div class="stat-item">
                 <el-statistic title="待验收" :value="room.pending_verification_count || 0" />
+              </div>
+              <div class="stat-item" v-if="room.reverification_count > 0">
+                <el-statistic title="需复验" :value="room.reverification_count || 0" />
               </div>
             </div>
           </el-card>
@@ -41,6 +44,56 @@
 
       <!-- 房间详情面板 -->
       <div v-if="selectedRoomId && currentRoom" class="room-details">
+        <!-- 房间状态管理模块（只读） -->
+        <el-card class="status-management-card">
+          <template #header>
+            <div class="module-header">
+              <div class="module-title">
+                <el-icon><Setting /></el-icon>
+                <span>房间状态管理</span>
+              </div>
+              <el-text type="info" size="small">只读模式 - 仅客户大使可编辑</el-text>
+            </div>
+          </template>
+          
+          <div class="status-management-horizontal readonly">
+            <div class="status-item">
+              <label>整改状态</label>
+              <el-tag :type="getStatusType(currentRoom.status)" size="large">
+                {{ currentRoom.status }}
+              </el-tag>
+            </div>
+            
+            <div class="status-item">
+              <label>交付状态</label>
+              <el-tag :type="currentRoom.delivery_status === '已交付' ? 'success' : 'warning'" size="small">
+                {{ currentRoom.delivery_status || '待交付' }}
+              </el-tag>
+            </div>
+            
+            <div class="status-item">
+              <label>签约状态</label>
+              <el-tag :type="currentRoom.contract_status === '已签约' ? 'success' : 'warning'" size="small">
+                {{ currentRoom.contract_status || '待签约' }}
+              </el-tag>
+            </div>
+            
+            <div class="status-item">
+              <label>信件状态</label>
+              <el-tag :type="currentRoom.letter_status === '无' ? 'info' : 'warning'" size="small">
+                {{ currentRoom.letter_status || '无' }}
+              </el-tag>
+            </div>
+            
+            <div class="status-item">
+              <label>预计交付时间</label>
+              <span class="status-text">
+                {{ currentRoom.expected_delivery_date ? formatDateOnly(currentRoom.expected_delivery_date) : '未设置' }}
+              </span>
+            </div>
+          </div>
+        </el-card>
+
         <el-card class="room-info-card">
           <template #header>
             <div class="room-info-header">
@@ -72,12 +125,15 @@
             </div>
           </div>
 
-          <div class="stats-row">
+          <div class="stats-row" :class="{ 'three-stats': currentRoom.reverification_count > 0 }">
             <div class="stat-item">
               <el-statistic title="质量问题总数" :value="currentRoom.quality_issue_count || 0" />
             </div>
             <div class="stat-item">
               <el-statistic title="待验收" :value="currentRoom.pending_verification_count || 0" />
+            </div>
+            <div class="stat-item" v-if="currentRoom.reverification_count > 0">
+              <el-statistic title="需复验" :value="currentRoom.reverification_count || 0" />
             </div>
           </div>
         </el-card>
@@ -122,7 +178,29 @@
                   </div>
                   <div class="issue-section">
                     <strong>记录人:</strong>
-                    <span>{{ getUserDisplayName(issue) }}</span>
+                    <span>{{ getUserDisplayName(issue) }} | 录入：{{ formatDateOnly(issue.record_date || issue.created_at) }}</span>
+                  </div>
+                  <!-- 验收信息 -->
+                  <div v-if="issue.status === '已验收'" class="issue-section">
+                    <strong>验收信息:</strong>
+                    <span>{{ getAcceptanceInfo(issue) }}</span>
+                  </div>
+                  <!-- 撤销信息 -->
+                  <div v-if="issue.status === '需复验'" class="issue-section">
+                    <strong>原验收:</strong>
+                    <span>{{ getOriginalAcceptanceInfo(issue) }}</span>
+                    <br>
+                    <strong>撤销信息:</strong>
+                    <span>{{ getRevokeInfo(issue) }}</span>
+                  </div>
+                  <!-- 已复验信息（完整历史） -->
+                  <div v-if="issue.status === '已复验'" class="issue-section">
+                    <strong>验收历史:</strong>
+                    <div class="verification-history">
+                      <div>原验收：{{ getOriginalAcceptanceInfo(issue) }}</div>
+                      <div>撤销：{{ getRevokeInfo(issue) }}</div>
+                      <div>复验：{{ getReverifyInfo(issue) }} ✅最终状态</div>
+                    </div>
                   </div>
                   <div v-if="issue.images" class="issue-images">
                     <strong>相关图片:</strong>
@@ -140,6 +218,7 @@
                   </div>
                 </div>
                 <div class="issue-actions">
+                  <!-- 待验收状态 -->
                   <el-button 
                     v-if="issue.status === '待验收'" 
                     type="success" 
@@ -148,6 +227,25 @@
                   >
                     验收
                   </el-button>
+                  <!-- 已验收状态 -->
+                  <el-button 
+                    v-if="issue.status === '已验收'" 
+                    type="warning" 
+                    size="small"
+                    @click="revokeIssue(issue)"
+                  >
+                    撤销验收
+                  </el-button>
+                  <!-- 需复验状态 -->
+                  <el-button 
+                    v-if="issue.status === '需复验'" 
+                    type="success" 
+                    size="small"
+                    @click="reverifyIssue(issue)"
+                  >
+                    复验
+                  </el-button>
+                  <!-- 已复验状态：不显示任何按钮（最终状态） -->
                 </div>
               </div>
             </div>
@@ -246,7 +344,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, Tools, Plus, Upload, Close } from '@element-plus/icons-vue'
+import { Loading, Tools, Plus, Upload, Close, Setting } from '@element-plus/icons-vue'
 import api from '../api'
 import { useAuthStore } from '../stores/auth'
 
@@ -306,11 +404,13 @@ const fetchRooms = async () => {
         const issuesResponse = await api.get(`/quality-issues/?room_id=${room.id}`)
         const issues = issuesResponse.data
         const pendingVerification = issues.filter(issue => issue.status === '待验收')
+        const reverificationIssues = issues.filter(issue => issue.status === '需复验')
         
         return {
           ...room,
           quality_issue_count: issues.length,
-          pending_verification_count: pendingVerification.length
+          pending_verification_count: pendingVerification.length,
+          reverification_count: reverificationIssues.length
         }
       })
     )
@@ -346,11 +446,13 @@ const fetchRoomDetails = async (roomId) => {
     
     // 更新统计数据
     const pendingVerification = qualityIssues.value.filter(issue => issue.status === '待验收')
+    const reverificationIssues = qualityIssues.value.filter(issue => issue.status === '需复验')
     
     currentRoom.value = {
       ...currentRoom.value,
       quality_issue_count: qualityIssues.value.length,
-      pending_verification_count: pendingVerification.length
+      pending_verification_count: pendingVerification.length,
+      reverification_count: reverificationIssues.length
     }
     
   } catch (error) {
@@ -371,7 +473,13 @@ const getStatusType = (status) => {
 }
 
 const getIssueStatusType = (status) => {
-  return status === '已验收' ? 'success' : 'warning'
+  const typeMap = {
+    '待验收': 'warning',
+    '已验收': 'success', 
+    '需复验': 'danger',
+    '已复验': 'info'  // 已复验使用信息色，表示最终完成状态
+  }
+  return typeMap[status] || 'warning'
 }
 
 // 格式化日期
@@ -469,11 +577,45 @@ const saveQualityIssue = async () => {
   }
 }
 
+// 获取验收信息
+const getAcceptanceInfo = (issue) => {
+  if (issue.reverified_by && issue.reverifier_name) {
+    return `${issue.reverifier_name}(${getRoleText(issue.reverifier_role)}) | 复验：${formatDateOnly(issue.reverified_at)}`
+  } else if (issue.accepted_by && issue.acceptor_name) {
+    return `${issue.acceptor_name}(${getRoleText(issue.acceptor_role)}) | 验收：${formatDateOnly(issue.accepted_at)}`
+  }
+  return '验收信息缺失'
+}
+
+// 获取原验收信息
+const getOriginalAcceptanceInfo = (issue) => {
+  if (issue.accepted_by && issue.acceptor_name) {
+    return `${issue.acceptor_name}(${getRoleText(issue.acceptor_role)}) | 验收：${formatDateOnly(issue.accepted_at)}`
+  }
+  return '验收信息缺失'
+}
+
+// 获取撤销信息
+const getRevokeInfo = (issue) => {
+  if (issue.revoked_by && issue.revoker_name) {
+    return `${issue.revoker_name}(${getRoleText(issue.revoker_role)}) | 撤销：${formatDateOnly(issue.revoked_at)}`
+  }
+  return '撤销信息缺失'
+}
+
+// 获取复验信息
+const getReverifyInfo = (issue) => {
+  if (issue.reverified_by && issue.reverifier_name) {
+    return `${issue.reverifier_name}(${getRoleText(issue.reverifier_role)}) | 复验：${formatDateOnly(issue.reverified_at)}`
+  }
+  return '复验信息缺失'
+}
+
 // 验收质量问题
 const acceptIssue = async (issue) => {
   try {
     await ElMessageBox.confirm(
-      '确认验收此质量问题吗？验收后将标记为已验收状态。',
+      `问题：${issue.description}\n\n当前登录：${authStore.user?.name}(${getRoleText(authStore.user?.role)})\n确认问题已解决并进行验收？`,
       '验收确认',
       {
         confirmButtonText: '确认验收',
@@ -493,6 +635,62 @@ const acceptIssue = async (issue) => {
     if (error !== 'cancel') {
       console.error('验收质量问题失败:', error)
       ElMessage.error('验收质量问题失败')
+    }
+  }
+}
+
+// 撤销验收
+const revokeIssue = async (issue) => {
+  try {
+    await ElMessageBox.confirm(
+      `问题：${issue.description}\n原验收：${getAcceptanceInfo(issue)}\n\n⚠️ 撤销后此问题需要重新复验才能关闭\n当前登录：${authStore.user?.name}(${getRoleText(authStore.user?.role)})\n确认撤销验收？`,
+      '撤销验收确认',
+      {
+        confirmButtonText: '确认撤销',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    await api.put(`/quality-issues/${issue.id}/revoke`)
+    ElMessage.success('验收已撤销，请及时复验')
+    
+    // 刷新数据
+    await fetchRoomDetails(selectedRoomId.value)
+    await fetchRooms()
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('撤销验收失败:', error)
+      ElMessage.error('撤销验收失败')
+    }
+  }
+}
+
+// 复验问题
+const reverifyIssue = async (issue) => {
+  try {
+    await ElMessageBox.confirm(
+      `此问题已被撤销验收，需要复验关闭\n\n问题：${issue.description}\n处理历史：\n  记录：${getUserDisplayName(issue)}\n  验收：${getOriginalAcceptanceInfo(issue)}\n  撤销：${getRevokeInfo(issue)}\n\n当前登录：${authStore.user?.name}(${getRoleText(authStore.user?.role)})\n确认问题已彻底解决？`,
+      '复验确认',
+      {
+        confirmButtonText: '确认复验',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    await api.put(`/quality-issues/${issue.id}/reverify`)
+    ElMessage.success('复验完成，问题已关闭')
+    
+    // 刷新数据
+    await fetchRoomDetails(selectedRoomId.value)
+    await fetchRooms()
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('复验失败:', error)
+      ElMessage.error('复验失败')
     }
   }
 }
@@ -640,6 +838,11 @@ const removeImage = (index) => {
   gap: 12px;
 }
 
+.room-stats.three-stats {
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
 .stat-item {
   text-align: center;
 }
@@ -692,6 +895,11 @@ const removeImage = (index) => {
   gap: 20px;
   padding-top: 16px;
   border-top: 1px solid #ebeef5;
+}
+
+.stats-row.three-stats {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
 }
 
 .module-card {
@@ -804,6 +1012,17 @@ const removeImage = (index) => {
   justify-content: flex-end;
 }
 
+.verification-history {
+  margin-left: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.verification-history div {
+  color: #606266;
+  margin-bottom: 2px;
+}
+
 .uploaded-images {
   display: flex;
   gap: 12px;
@@ -827,5 +1046,45 @@ const removeImage = (index) => {
   width: 24px;
   height: 24px;
   padding: 0;
+}
+
+.status-management-card {
+  margin-bottom: 20px;
+}
+
+.status-management-horizontal {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 16px;
+  flex-wrap: wrap;
+}
+
+.status-management-horizontal.readonly {
+  background-color: #f9f9f9;
+  border-radius: 6px;
+}
+
+.status-management-horizontal .status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.status-management-horizontal .status-item label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  white-space: nowrap;
+}
+
+.status-text {
+  font-size: 14px;
+  color: #303133;
+  padding: 4px 8px;
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
 }
 </style>
