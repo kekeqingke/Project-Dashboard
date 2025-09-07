@@ -76,7 +76,7 @@ def delete_user(db: Session, user_id: int):
 # Room operations
 def get_rooms(db: Session):
     rooms = db.query(models.Room).all()
-    # 为每个房间添加用户分配信息
+    # 为每个房间添加用户分配信息和格式化户主信息
     for room in rooms:
         assignments = db.query(models.UserRoom).filter(models.UserRoom.room_id == room.id).all()
         room.assigned_users = []
@@ -88,6 +88,24 @@ def get_rooms(db: Session):
                     'name': user.name,
                     'role': user.role
                 })
+        
+        # 格式化户主信息用于前端显示（保留原始逻辑但修复空值问题）
+        names = []
+        phones = []
+        
+        if room.owner_name:
+            names.append(room.owner_name)
+        if room.owner_phone:
+            phones.append(room.owner_phone)
+        if room.second_owner_name:
+            names.append(room.second_owner_name)
+        if room.second_owner_phone:
+            phones.append(room.second_owner_phone)
+        
+        # 为前端显示设置合并后的户主信息
+        room.owner_name = "/".join(names) if len(names) > 1 else names[0] if names else None
+        room.owner_phone = "/".join(phones) if len(phones) > 1 else phones[0] if phones else None
+    
     return rooms
 
 def get_user_rooms(db: Session, user_id: int):
@@ -397,24 +415,22 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
         
         # 沟通记录相关功能已删除
         
-        # 获取户主信息
-        customer = db.query(models.Customer).filter(models.Customer.room_id == room.id).first()
-        owner_name = ""
-        owner_phone = ""
+        # 获取户主信息（从rooms表获取）
+        names = []
+        phones = []
         
-        if customer:
-            # 格式化户主姓名和手机号
-            names = [customer.name]
-            phones = [customer.phone]
-            
-            if customer.second_name:
-                names.append(customer.second_name)
-            if customer.second_phone:
-                phones.append(customer.second_phone)
-            
-            # 只有在有多个时才用"/"分隔
-            owner_name = "/".join(names) if len(names) > 1 else names[0] if names else ""
-            owner_phone = "/".join(phones) if len(phones) > 1 else phones[0] if phones else ""
+        if room.owner_name:
+            names.append(room.owner_name)
+        if room.owner_phone:
+            phones.append(room.owner_phone)
+        if room.second_owner_name:
+            names.append(room.second_owner_name)
+        if room.second_owner_phone:
+            phones.append(room.second_owner_phone)
+        
+        # 只有在有多个时才用"/"分隔
+        owner_name = "/".join(names) if len(names) > 1 else names[0] if names else ""
+        owner_phone = "/".join(phones) if len(phones) > 1 else phones[0] if phones else ""
         
         # 构建带聚合数据的房间对象
         room_summary = {
@@ -536,54 +552,11 @@ def clear_all_rooms_content(db: Session):
         "message": f"已清空 {len(rooms)} 个房间的内容数据，保留用户分配和房号信息"
     }
 
-# Customer CRUD operations
-def get_customer_by_room_id(db: Session, room_id: int):
-    """根据房间ID获取客户信息"""
-    return db.query(models.Customer).filter(models.Customer.room_id == room_id).first()
-
-def create_customer(db: Session, customer: schemas.CustomerCreate):
-    """创建客户信息"""
-    db_customer = models.Customer(**customer.dict())
-    db.add(db_customer)
-    db.commit()
-    db.refresh(db_customer)
-    return db_customer
-
-def update_customer(db: Session, customer_id: int, customer: schemas.CustomerUpdate):
-    """更新客户信息"""
-    db_customer = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
-    if db_customer:
-        for key, value in customer.dict(exclude_unset=True).items():
-            setattr(db_customer, key, value)
-        db.commit()
-        db.refresh(db_customer)
-    return db_customer
-
-def delete_customer(db: Session, customer_id: int):
-    """删除客户信息"""
-    db_customer = db.query(models.Customer).filter(models.Customer.id == customer_id).first()
-    if db_customer:
-        db.delete(db_customer)
-        db.commit()
-        return True
-    return False
-
-def get_customer(db: Session, customer_id: int):
-    """根据ID获取客户信息"""
-    return db.query(models.Customer).filter(models.Customer.id == customer_id).first()
-
-def check_id_card_exists(db: Session, id_card: str, exclude_customer_id: int = None):
-    """检查身份证号是否已存在"""
-    query = db.query(models.Customer).filter(models.Customer.id_card == id_card)
-    if exclude_customer_id:
-        query = query.filter(models.Customer.id != exclude_customer_id)
-    return query.first() is not None
 
 def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
-    """批量导入房间户主信息"""
+    """批量导入房间户主信息（直接更新rooms表）"""
     total = len(owner_data)
     updated = 0
-    created = 0
     errors = []
     
     for i, row in enumerate(owner_data, 1):
@@ -603,11 +576,6 @@ def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
                 errors.append(f"第{i}行：未找到对应房间 {row['building_unit']} {row['room_number']}")
                 continue
             
-            # 查找是否已有客户信息
-            customer = db.query(models.Customer).filter(
-                models.Customer.room_id == room.id
-            ).first()
-            
             # 准备户主数据
             owner_name1 = row.get('owner_name1', '').strip() if row.get('owner_name1') else None
             owner_phone1 = row.get('owner_phone1', '').strip() if row.get('owner_phone1') else None
@@ -619,40 +587,18 @@ def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
                 errors.append(f"第{i}行：至少需要填写一个户主的姓名或手机号")
                 continue
             
-            if customer:
-                # 更新现有客户信息的户主字段
-                if owner_name1:
-                    customer.name = owner_name1
-                if owner_phone1:
-                    customer.phone = owner_phone1
-                if owner_name2:
-                    customer.second_name = owner_name2
-                if owner_phone2:
-                    customer.second_phone = owner_phone2
-                
-                db.commit()
-                updated += 1
-            else:
-                # 创建新的客户记录（需要完整信息）
-                if not owner_name1 or not owner_phone1:
-                    errors.append(f"第{i}行：新建客户记录需要完整的主户主信息（姓名和手机号）")
-                    continue
-                
-                # 创建基础客户信息（使用默认值）
-                new_customer = models.Customer(
-                    room_id=room.id,
-                    name=owner_name1,
-                    gender='男',  # 默认值
-                    id_card=f'TEMP{room.id:010d}',  # 临时身份证号
-                    phone=owner_phone1,
-                    customer_level='C',  # 默认等级
-                    second_name=owner_name2,
-                    second_phone=owner_phone2
-                )
-                
-                db.add(new_customer)
-                db.commit()
-                created += 1
+            # 直接更新rooms表的户主字段
+            if owner_name1:
+                room.owner_name = owner_name1
+            if owner_phone1:
+                room.owner_phone = owner_phone1
+            if owner_name2:
+                room.second_owner_name = owner_name2
+            if owner_phone2:
+                room.second_owner_phone = owner_phone2
+            
+            db.commit()
+            updated += 1
                 
         except Exception as e:
             errors.append(f"第{i}行：处理失败 - {str(e)}")
@@ -662,6 +608,6 @@ def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
         'success': len(errors) == 0,
         'total': total,
         'updated': updated,
-        'created': created,
+        'created': 0,  # 不再创建新记录，只更新现有房间
         'errors': errors
     }

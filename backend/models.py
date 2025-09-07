@@ -30,13 +30,19 @@ class Room(Base):
     contract_status = Column(String, default="待签约")  # 待签约, 已签约
     letter_status = Column(String, default="无")  # 无, ZX, SX
     expected_delivery_date = Column(Date, nullable=True)  # 预计交付时间
+    
+    # 户主信息字段
+    owner_name = Column(String, nullable=True)  # 户主姓名
+    owner_phone = Column(String, nullable=True)  # 户主手机号
+    second_owner_name = Column(String, nullable=True)  # 第二户主姓名
+    second_owner_phone = Column(String, nullable=True)  # 第二户主手机号
+    
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # 关系
     user_assignments = relationship("UserRoom", back_populates="room")
     quality_issues = relationship("QualityIssue", back_populates="room")
-    customer = relationship("Customer", back_populates="room", uselist=False)
 
 class UserRoom(Base):
     __tablename__ = "user_rooms"
@@ -76,21 +82,3 @@ class QualityIssue(Base):
     revoker = relationship("User", foreign_keys=[revoked_by])
     reverifier = relationship("User", foreign_keys=[reverified_by])
 
-class Customer(Base):
-    __tablename__ = "customers"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    room_id = Column(Integer, ForeignKey("rooms.id"), unique=True)  # 一对一关系
-    name = Column(String, nullable=False)  # 客户姓名
-    gender = Column(String, nullable=False)  # 性别：男/女
-    id_card = Column(String(18), nullable=False, unique=True)  # 身份证号
-    phone = Column(String(11), nullable=False)  # 手机号
-    customer_level = Column(String, nullable=False)  # 客户分级：A/B/C
-    work_unit = Column(String, nullable=True)  # 工作单位（选填）
-    second_name = Column(String, nullable=True)  # 第二户主姓名
-    second_phone = Column(String(11), nullable=True)  # 第二户主手机号
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
-    # 关系
-    room = relationship("Room", back_populates="customer", uselist=False)

@@ -47,6 +47,12 @@ class Room(RoomBase):
     updated_at: Optional[datetime] = None
     assigned_users: Optional[List[Any]] = []
     
+    # 户主信息字段
+    owner_name: Optional[str] = None
+    owner_phone: Optional[str] = None
+    second_owner_name: Optional[str] = None
+    second_owner_phone: Optional[str] = None
+    
     class Config:
         from_attributes = True
 
@@ -136,67 +142,6 @@ class QualityIssue(QualityIssueBase):
         from_attributes = True
 
 
-# Customer schemas
-class CustomerBase(BaseModel):
-    name: str
-    gender: str
-    id_card: str
-    phone: str
-    customer_level: str
-    work_unit: Optional[str] = None
-    second_name: Optional[str] = None  # 第二户主姓名
-    second_phone: Optional[str] = None  # 第二户主手机号
-    
-    @field_validator('gender')
-    @classmethod
-    def validate_gender(cls, v):
-        if v not in ['男', '女']:
-            raise ValueError('性别必须为 男 或 女')
-        return v
-    
-    @field_validator('id_card')
-    @classmethod
-    def validate_id_card(cls, v):
-        # 简化的身份证号验证
-        if not re.match(r'^\d{17}[\dXx]$', v):
-            raise ValueError('身份证号码格式不正确')
-        return v
-    
-    @field_validator('phone')
-    @classmethod
-    def validate_phone(cls, v):
-        if not re.match(r'^1[3-9]\d{9}$', v):
-            raise ValueError('手机号码格式不正确')
-        return v
-    
-    @field_validator('second_phone')
-    @classmethod
-    def validate_second_phone(cls, v):
-        if v and not re.match(r'^1[3-9]\d{9}$', v):
-            raise ValueError('第二户主手机号码格式不正确')
-        return v
-    
-    @field_validator('customer_level')
-    @classmethod
-    def validate_customer_level(cls, v):
-        if v not in ['A', 'B', 'C']:
-            raise ValueError('客户分级必须为 A、B 或 C')
-        return v
-
-class CustomerCreate(CustomerBase):
-    room_id: int
-
-class CustomerUpdate(CustomerBase):
-    pass
-
-class Customer(CustomerBase):
-    id: int
-    room_id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 # Excel导入相关schemas
 class OwnerImportItem(BaseModel):

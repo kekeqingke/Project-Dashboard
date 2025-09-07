@@ -129,7 +129,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { roomAPI, qualityIssueAPI, customerAPI } from '../api/index.js'
+import { roomAPI, qualityIssueAPI } from '../api/index.js'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus, Download } from '@element-plus/icons-vue'
 
@@ -174,31 +174,11 @@ const fetchRoomData = async () => {
       throw new Error('房间不存在')
     }
     
-    // 然后并行获取其他数据
-    const promises = [
-      qualityIssueAPI.getQualityIssues(roomId)
-    ]
-    
-    // 只有管理员和客户大使可以看到客户信息标签
-    if (authStore.user?.role === 'admin' || authStore.user?.role === 'customer_ambassador') {
-      promises.push(customerAPI.getCustomerByRoom(roomId))
-    }
-    
-    const responses = await Promise.all(promises)
-    const [issuesRes, customerRes] = responses
-    
+    // 然后获取质量问题数据
+    const issuesRes = await qualityIssueAPI.getQualityIssues(roomId)
     qualityIssues.value = issuesRes.data
-    
-    if (customerRes) {
-      customerInfo.value = customerRes.data
-    }
   } catch (error) {
-    if (error.response?.status === 404 && error.config?.url?.includes('/customers/room/')) {
-      // 客户信息不存在，这是正常情况
-      customerInfo.value = null
-    } else {
-      ElMessage.error('获取房间数据失败: ' + (error.message || '未知错误'))
-    }
+    ElMessage.error('获取房间数据失败: ' + (error.message || '未知错误'))
   } finally {
     loading.value = false
   }

@@ -75,11 +75,5 @@ export const adminAPI = {
   importRoomOwners: (ownerData) => api.post('/admin/import-room-owners', ownerData)
 }
 
-export const customerAPI = {
-  getCustomerByRoom: (roomId) => api.get(`/customers/room/${roomId}`),
-  createCustomer: (customerData) => api.post('/customers/', customerData),
-  updateCustomer: (customerId, customerData) => api.put(`/customers/${customerId}`, customerData),
-  deleteCustomer: (customerId) => api.delete(`/customers/${customerId}`)
-}
 
 export default api

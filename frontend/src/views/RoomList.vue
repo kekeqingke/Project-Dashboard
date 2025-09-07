@@ -37,29 +37,17 @@
       </el-table-column>
       
       <!-- 户主信息列 -->
-      <el-table-column prop="owner_name1" label="户主姓名" width="120">
+      <el-table-column prop="owner_name" label="户主姓名" width="120">
         <template #default="scope">
-          <span>{{ scope.row.owner_name1 || '未录入' }}</span>
+          <span>{{ scope.row.owner_name || '未录入' }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="owner_phone1" label="手机号码" width="140">
+      <el-table-column prop="owner_phone" label="手机号码" width="140">
         <template #default="scope">
-          <span>{{ scope.row.owner_phone1 || '未录入' }}</span>
+          <span>{{ scope.row.owner_phone || '未录入' }}</span>
         </template>
       </el-table-column>
       
-      <el-table-column prop="status" label="状态" width="120">
-        <template #default="scope">
-          <el-tag :type="getStatusType(scope.row.status)">
-            {{ scope.row.status }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="质量问题" width="120">
-        <template #default="scope">
-          <span>{{ getRoomIssueCount(scope.row.id) }}</span>
-        </template>
-      </el-table-column>
       <el-table-column label="客户大使" width="120">
         <template #default="scope">
           <div class="user-cell">
@@ -88,11 +76,6 @@
             </span>
             <span v-else class="no-user">未分配</span>
           </div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="updated_at" label="最后更新时间" width="180">
-        <template #default="scope">
-          {{ formatDate(scope.row.updated_at) }}
         </template>
       </el-table-column>
       <el-table-column label="操作" width="120">
@@ -188,9 +171,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { roomAPI, qualityIssueAPI } from '../api'
+import { roomAPI, qualityIssueAPI, adminAPI } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as API from '../api/index.js'
+import api from '../api/index.js'
 import * as XLSX from 'xlsx'
 
 const router = useRouter()
@@ -366,13 +349,21 @@ const readExcelFile = (file) => {
       for (let i = 1; i < jsonData.length; i++) {
         const row = jsonData[i]
         if (row.length > 0 && (row[0] || row[1])) { // 至少有楼栋或房间号
+          // 格式化房间号：3-9楼是3位数需添加前导0，10楼及以上是4位数保持原样
+          let roomNumber = String(row[1] || '')
+          if (roomNumber && /^\d{3}$/.test(roomNumber)) {
+            // 3位数房间号（3-9楼），例如301 -> 0301
+            roomNumber = '0' + roomNumber
+          }
+          // 4位数房间号（10楼及以上，如1201）保持原样
+          
           processedData.push({
-            building_unit: row[0] || '',
-            room_number: row[1] || '',
-            owner_name1: row[2] || '',
-            owner_phone1: row[3] || '',
-            owner_name2: row[4] || '',
-            owner_phone2: row[5] || ''
+            building_unit: String(row[0] || ''),
+            room_number: roomNumber,
+            owner_name1: String(row[2] || ''),
+            owner_phone1: String(row[3] || ''),
+            owner_name2: String(row[4] || ''),
+            owner_phone2: String(row[5] || '')
           })
         }
       }
@@ -388,6 +379,8 @@ const readExcelFile = (file) => {
 }
 
 const executeImport = async () => {
+  console.log('开始执行导入，预览数据长度:', previewData.value.length)
+  
   if (previewData.value.length === 0) {
     ElMessage.error('没有可导入的数据')
     return
@@ -404,10 +397,13 @@ const executeImport = async () => {
       }
     )
     
+    console.log('用户确认导入，开始发送请求')
     importLoading.value = true
     
     // 直接使用API调用而不是通过adminAPI
-    const response = await API.default.post('/admin/import-room-owners', previewData.value)
+    console.log('发送请求到:', '/admin/import-room-owners', '数据:', previewData.value)
+    const response = await api.post('/admin/import-room-owners', previewData.value)
+    console.log('收到响应:', response)
     
     if (response.data.success) {
       ElMessage.success(
@@ -429,8 +425,41 @@ const executeImport = async () => {
     }
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('导入失败:', error)
-      ElMessage.error('导入失败：' + (error.response?.data?.detail || error.message))
+      console.error('导入失败，完整错误对象:', error)
+      console.error('错误响应数据:', error.response?.data)
+      console.error('错误状态码:', error.response?.status)
+      
+      // 如果是422错误，显示详细的验证错误
+      if (error.response?.status === 422 && error.response?.data?.detail) {
+        console.error('验证错误详情:', error.response.data.detail)
+      }
+      
+      let errorMessage = '导入失败'
+      if (error.response?.status === 422 && error.response?.data?.detail) {
+        // 处理验证错误
+        const details = error.response.data.detail
+        if (Array.isArray(details)) {
+          errorMessage += '：数据验证失败，请检查Excel格式是否正确'
+          console.error('详细验证错误:', details.map(d => `字段: ${d.loc?.join('.')}, 错误: ${d.msg}`).join('; '))
+        } else {
+          errorMessage += '：' + details
+        }
+      } else if (error.response?.data?.detail) {
+        errorMessage += '：' + error.response.data.detail
+      } else if (error.response?.status) {
+        errorMessage += `：HTTP ${error.response.status}`
+        if (error.response.status === 404) {
+          errorMessage += ' - API端点未找到，请检查后端服务是否正常运行'
+        } else if (error.response.status === 401) {
+          errorMessage += ' - 未授权，请重新登录'
+        } else if (error.response.status === 403) {
+          errorMessage += ' - 权限不足，需要管理员权限'
+        }
+      } else if (error.message) {
+        errorMessage += '：' + error.message
+      }
+      
+      ElMessage.error(errorMessage)
     }
   } finally {
     importLoading.value = false
