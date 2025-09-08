@@ -113,12 +113,9 @@
       >
         <el-table-column type="selection" width="55" />
         <el-table-column prop="building_unit" label="楼栋" width="100" />
-        <el-table-column prop="room_number" label="房间号" width="100" />
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column label="房间号" width="100">
           <template #default="scope">
-            <el-tag :type="getStatusType(scope.row.status)">
-              {{ scope.row.status }}
-            </el-tag>
+            {{ formatRoomNumber(scope.row.room_number) }}
           </template>
         </el-table-column>
         <el-table-column label="已分配用户" min-width="200">
@@ -143,7 +140,11 @@
       
       <el-table :data="userAssignedRooms" style="width: 100%">
         <el-table-column prop="building_unit" label="楼栋" width="120" />
-        <el-table-column prop="room_number" label="房间号" width="120" />
+        <el-table-column label="房间号" width="120">
+          <template #default="scope">
+            {{ formatRoomNumber(scope.row.room_number) }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="120">
           <template #default="scope">
             <el-button 
@@ -351,7 +352,7 @@ const getUserRoomCount = (userId) => {
 const removeRoomAssignment = async (room) => {
   try {
     await userAPI.deleteRoomAssignment(room.assignment_id)
-    ElMessage.success(`已移除房间 ${room.building_unit}-${room.room_number}`)
+    ElMessage.success(`已移除房间 ${room.building_unit}-${formatRoomNumber(room.room_number)}`)
     fetchData() // 刷新数据
   } catch (error) {
     ElMessage.error('移除房间分配失败')
@@ -359,8 +360,29 @@ const removeRoomAssignment = async (room) => {
 }
 
 const getRoomAssignedUsers = (roomId) => {
-  // 这里需要实际的分配数据，暂时返回空
-  return '暂无分配'
+  // 获取该房间已分配的用户
+  const roomAssignments = assignments.value.filter(assignment => assignment.room_id === roomId)
+  
+  if (roomAssignments.length === 0) {
+    return '暂无分配'
+  }
+  
+  // 获取已分配的角色
+  const assignedRoles = new Set()
+  roomAssignments.forEach(assignment => {
+    const user = users.value.find(u => u.id === assignment.user_id)
+    if (user) {
+      assignedRoles.add(user.role)
+    }
+  })
+  
+  // 转换为中文角色名
+  const roleNames = []
+  if (assignedRoles.has('customer_ambassador')) roleNames.push('客户大使')
+  if (assignedRoles.has('project_engineer')) roleNames.push('项目工程师')
+  if (assignedRoles.has('maintenance_engineer')) roleNames.push('维修工程师')
+  
+  return roleNames.length > 0 ? roleNames.join('、') : '暂无分配'
 }
 
 const getRoleName = (role) => {
@@ -383,7 +405,23 @@ const getStatusType = (status) => {
 }
 
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  return new Date(dateString).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai'
+  })
+}
+
+const formatRoomNumber = (roomNumber) => {
+  if (!roomNumber) return ''
+  
+  const roomStr = roomNumber.toString()
+  
+  // 如果是4位数且以0开头（3-9楼），去掉前导0
+  if (roomStr.length === 4 && roomStr.startsWith('0')) {
+    return roomStr.substring(1)
+  }
+  
+  // 其他情况（10楼以上的4位数）保持原样
+  return roomStr
 }
 
 onMounted(() => {
@@ -435,6 +473,6 @@ onMounted(() => {
 }
 
 .delete-button {
-  margin-left: 10px !important;
+  margin-left: 20px !important;
 }
 </style>

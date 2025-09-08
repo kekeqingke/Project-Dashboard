@@ -5,7 +5,7 @@
         <el-icon><ArrowLeft /></el-icon>
         返回
       </el-button>
-      <h3 class="room-title" v-if="roomInfo">{{ roomInfo.building_unit }} {{ roomInfo.room_number }}号房</h3>
+      <h3 class="room-title" v-if="roomInfo">{{ roomInfo.building_unit }} {{ formatRoomNumber(roomInfo.room_number) }}号房</h3>
       <h3 class="room-title loading-title" v-else>加载中...</h3>
       <div class="header-actions">
         <el-tag :type="getStatusType(roomInfo?.status)">{{ roomInfo?.status }}</el-tag>
@@ -221,7 +221,16 @@ const previewImage = (src) => {
 }
 
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  return new Date(dateString).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai'
+  })
+}
+
+// 格式化房号，去掉前导零
+const formatRoomNumber = (roomNumber) => {
+  if (!roomNumber) return roomNumber
+  // 将房号转为字符串，然后去掉前导零
+  return parseInt(roomNumber).toString()
 }
 
 

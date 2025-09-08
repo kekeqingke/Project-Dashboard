@@ -65,13 +65,9 @@ class QualityIssue(Base):
     description = Column(Text)
     issue_type = Column(String, default="质量瑕疵")  # 质量瑕疵, 材料备货
     images = Column(Text)  # JSON字符串存储图片路径
-    status = Column(String, default="待验收")  # 待验收, 已验收, 需复验
+    status = Column(String, default="待验收")  # 待验收, 已验收 (简化为两种状态)
     accepted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     accepted_at = Column(DateTime, nullable=True)
-    revoked_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 撤销验收的用户ID
-    revoked_at = Column(DateTime, nullable=True)  # 撤销时间
-    reverified_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 复验的用户ID
-    reverified_at = Column(DateTime, nullable=True)  # 复验时间
     record_date = Column(DateTime, nullable=True)  # 录入时间（用户指定的日期）
     created_at = Column(DateTime, server_default=func.now())
     
@@ -79,6 +75,23 @@ class QualityIssue(Base):
     room = relationship("Room", back_populates="quality_issues")
     user = relationship("User", back_populates="quality_issues", foreign_keys=[user_id])
     acceptor = relationship("User", foreign_keys=[accepted_by])
-    revoker = relationship("User", foreign_keys=[revoked_by])
-    reverifier = relationship("User", foreign_keys=[reverified_by])
+    logs = relationship("QualityIssueLog", back_populates="issue")
+
+class QualityIssueLog(Base):
+    __tablename__ = "quality_issue_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    issue_id = Column(Integer, ForeignKey("quality_issues.id"))
+    action = Column(String(50))  # CREATE, UPDATE, ACCEPT, REVOKE_ACCEPT
+    operator_id = Column(Integer, ForeignKey("users.id"))
+    operator_name = Column(String(100))
+    operator_role = Column(String(50))
+    timestamp = Column(DateTime, server_default=func.now())
+    before_data = Column(Text)  # JSON格式记录变更前数据
+    after_data = Column(Text)   # JSON格式记录变更后数据
+    remarks = Column(Text)      # 操作备注
+    
+    # 关系
+    issue = relationship("QualityIssue", back_populates="logs")
+    operator = relationship("User", foreign_keys=[operator_id])
 

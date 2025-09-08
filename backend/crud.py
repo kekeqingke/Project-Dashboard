@@ -5,6 +5,7 @@ from typing import List, Optional
 import json
 import random
 import string
+from datetime import datetime
 
 def get_user(db: Session, user_id: int):
     return db.query(models.User).filter(models.User.id == user_id).first()
@@ -122,6 +123,36 @@ def get_room_by_id(db: Session, room_id: int, user_id: Optional[int] = None):
     room = query.first()
     if not room:
         return None
+    
+    # 添加用户分配信息，与get_rooms函数保持一致
+    assignments = db.query(models.UserRoom).filter(models.UserRoom.room_id == room.id).all()
+    room.assigned_users = []
+    for assignment in assignments:
+        user = db.query(models.User).filter(models.User.id == assignment.user_id).first()
+        if user:
+            room.assigned_users.append({
+                'id': user.id,
+                'name': user.name,
+                'role': user.role
+            })
+    
+    # 格式化户主信息用于前端显示（保留原始逻辑但修复空值问题）
+    names = []
+    phones = []
+    
+    if room.owner_name:
+        names.append(room.owner_name)
+    if room.owner_phone:
+        phones.append(room.owner_phone)
+    if room.second_owner_name:
+        names.append(room.second_owner_name)
+    if room.second_owner_phone:
+        phones.append(room.second_owner_phone)
+    
+    # 为前端显示设置合并后的户主信息
+    room.owner_name = "/".join(names) if len(names) > 1 else names[0] if names else None
+    room.owner_phone = "/".join(phones) if len(phones) > 1 else phones[0] if phones else None
+    
     return room
 
 def create_room(db: Session, room: schemas.RoomCreate):
@@ -218,101 +249,222 @@ def get_quality_issues(db: Session, room_id: Optional[int] = None, user_id: Opti
                 issue.acceptor_name = acceptor.name
                 issue.acceptor_role = acceptor.role
         
-        # 添加撤销人信息
-        if issue.revoked_by:
-            revoker = db.query(models.User).filter(models.User.id == issue.revoked_by).first()
-            if revoker:
-                issue.revoker_name = revoker.name
-                issue.revoker_role = revoker.role
-        
-        # 添加复验人信息
-        if issue.reverified_by:
-            reverifier = db.query(models.User).filter(models.User.id == issue.reverified_by).first()
-            if reverifier:
-                issue.reverifier_name = reverifier.name
-                issue.reverifier_role = reverifier.role
     return issues
 
 def create_quality_issue(db: Session, issue: schemas.QualityIssueCreate, user_id: int):
+    """创建质量问题并记录日志"""
     db_issue = models.QualityIssue(**issue.dict(), user_id=user_id)
     db.add(db_issue)
     db.commit()
     db.refresh(db_issue)
+    
+    # 获取用户信息
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    
+    # 创建操作日志
+    log = models.QualityIssueLog(
+        issue_id=db_issue.id,
+        action="CREATE",
+        operator_id=user_id,
+        operator_name=user.name if user else "未知用户",
+        operator_role=user.role if user else "unknown",
+        after_data=json.dumps({
+            "status": db_issue.status,
+            "description": db_issue.description,
+            "issue_type": db_issue.issue_type,
+            "record_date": db_issue.record_date.isoformat() if db_issue.record_date else None
+        }),
+        remarks="创建质量问题"
+    )
+    
+    db.add(log)
+    db.commit()
     
     # 更新房间状态为"整改中"
     update_room_status(db, issue.room_id)
     return db_issue
 
 def accept_quality_issue(db: Session, issue_id: int, user_id: int):
-    from datetime import datetime
+    """简化的验收功能 - 只支持项目工程师验收"""
     issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
-    if issue:
-        issue.status = "已验收"
-        issue.accepted_by = user_id
-        issue.accepted_at = datetime.now()
-        # 清除撤销和复验相关字段（如果是复验操作会在reverify函数中处理）
-        if issue.revoked_by:
-            issue.reverified_by = user_id
-            issue.reverified_at = datetime.now()
-        db.commit()
-        
-        # 检查房间是否可以设置为"闭户"
-        update_room_status(db, issue.room_id)
-        return issue
-    return None
-
-def revoke_quality_issue(db: Session, issue_id: int, user_id: int):
-    from datetime import datetime
-    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
-    if issue and issue.status == "已验收":
-        issue.status = "需复验"
-        issue.revoked_by = user_id
-        issue.revoked_at = datetime.now()
-        db.commit()
-        
-        # 更新房间状态为"整改中"
-        update_room_status(db, issue.room_id)
-        return issue
-    return None
-
-def reverify_quality_issue(db: Session, issue_id: int, user_id: int):
-    from datetime import datetime
-    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
-    if issue and issue.status == "需复验":
-        issue.status = "已复验"  # 复验后状态为"已复验"，这是最终状态
-        issue.reverified_by = user_id
-        issue.reverified_at = datetime.now()
-        db.commit()
-        
-        # 检查房间是否可以设置为"闭户"
-        update_room_status(db, issue.room_id)
-        return issue
-    return None
-
-def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.QualityIssueUpdate, user_id: Optional[int] = None):
-    """更新质量问题"""
-    query = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id)
+    if not issue:
+        return None
     
-    # 如果提供了user_id，检查用户是否有权限访问该质量问题
-    if user_id:
-        query = query.join(models.UserRoom, models.QualityIssue.room_id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id)
+    if issue.status != "待验收":
+        return None
+        
+    # 获取操作用户信息
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user or user.role != "project_engineer":
+        return None  # 只允许项目工程师验收
     
-    issue = query.first()
-    if issue:
-        for key, value in issue_update.dict(exclude_unset=True).items():
-            if value is not None:
-                setattr(issue, key, value)
-        db.commit()
-        db.refresh(issue)
+    # 记录变更前数据
+    before_data = json.dumps({
+        "status": issue.status,
+        "accepted_by": issue.accepted_by,
+        "accepted_at": issue.accepted_at.isoformat() if issue.accepted_at else None
+    })
+    
+    # 执行验收
+    issue.status = "已验收"
+    issue.accepted_by = user_id
+    issue.accepted_at = datetime.now()
+    
+    # 记录变更后数据
+    after_data = json.dumps({
+        "status": issue.status,
+        "accepted_by": issue.accepted_by,
+        "accepted_at": issue.accepted_at.isoformat()
+    })
+    
+    # 创建操作日志
+    log = models.QualityIssueLog(
+        issue_id=issue_id,
+        action="ACCEPT",
+        operator_id=user_id,
+        operator_name=user.name,
+        operator_role=user.role,
+        before_data=before_data,
+        after_data=after_data,
+        remarks="质量问题验收通过"
+    )
+    
+    db.add(log)
+    db.commit()
+    
+    # 检查房间是否可以设置为"闭户"
+    update_room_status(db, issue.room_id)
+    return issue
+
+def revoke_accept_quality_issue(db: Session, issue_id: int, user_id: int):
+    """撤销验收功能 - 限制24小时内且只能撤销自己的验收"""
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+    if not issue:
+        return None
         
-        # 更新房间状态
-        update_room_status(db, issue.room_id)
+    if issue.status != "已验收" or issue.accepted_by != user_id:
+        return None  # 只能撤销自己的验收
         
-        # 设置is_verified字段（保证前端兼容性）
-        issue.is_verified = issue.status == "已验收"
+    # 检查是否在24小时内
+    if issue.accepted_at:
+        time_diff = datetime.now() - issue.accepted_at
+        if time_diff.total_seconds() > 86400:  # 24小时 = 86400秒
+            return None
+    
+    # 获取操作用户信息
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None
+    
+    # 记录变更前数据
+    before_data = json.dumps({
+        "status": issue.status,
+        "accepted_by": issue.accepted_by,
+        "accepted_at": issue.accepted_at.isoformat() if issue.accepted_at else None
+    })
+    
+    # 执行撤销
+    issue.status = "待验收"
+    issue.accepted_by = None
+    issue.accepted_at = None
+    
+    # 记录变更后数据
+    after_data = json.dumps({
+        "status": issue.status,
+        "accepted_by": None,
+        "accepted_at": None
+    })
+    
+    # 创建操作日志
+    log = models.QualityIssueLog(
+        issue_id=issue_id,
+        action="REVOKE_ACCEPT",
+        operator_id=user_id,
+        operator_name=user.name,
+        operator_role=user.role,
+        before_data=before_data,
+        after_data=after_data,
+        remarks="验收人撤销验收(24小时内)"
+    )
+    
+    db.add(log)
+    db.commit()
+    
+    # 更新房间状态
+    update_room_status(db, issue.room_id)
+    return issue
+
+def get_quality_issue_logs(db: Session, issue_id: int):
+    """获取质量问题的所有操作日志"""
+    return db.query(models.QualityIssueLog).filter(
+        models.QualityIssueLog.issue_id == issue_id
+    ).order_by(models.QualityIssueLog.timestamp.asc()).all()
+
+def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.QualityIssueUpdate, user_id: int):
+    """更新质量问题 - 只允许创建人修改且仅限待验收状态"""
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+    
+    if not issue:
+        return None
         
-        return issue
-    return None
+    # 只允许创建人修改
+    if issue.user_id != user_id:
+        return None
+        
+    # 只允许修改待验收状态的问题
+    if issue.status != "待验收":
+        return None
+    
+    # 获取操作用户信息
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None
+    
+    # 记录变更前数据
+    before_data = json.dumps({
+        "description": issue.description,
+        "issue_type": issue.issue_type,
+        "record_date": issue.record_date.isoformat() if issue.record_date else None,
+        "images": issue.images
+    })
+    
+    # 执行更新
+    update_dict = issue_update.dict(exclude_unset=True)
+    for key, value in update_dict.items():
+        if value is not None:
+            setattr(issue, key, value)
+    
+    # 记录变更后数据
+    after_data = json.dumps({
+        "description": issue.description,
+        "issue_type": issue.issue_type,
+        "record_date": issue.record_date.isoformat() if issue.record_date else None,
+        "images": issue.images
+    })
+    
+    # 创建操作日志
+    log = models.QualityIssueLog(
+        issue_id=issue_id,
+        action="UPDATE",
+        operator_id=user_id,
+        operator_name=user.name,
+        operator_role=user.role,
+        before_data=before_data,
+        after_data=after_data,
+        remarks="修改质量问题信息"
+    )
+    
+    db.add(log)
+    db.commit()
+    db.refresh(issue)
+    
+    # 更新房间状态
+    update_room_status(db, issue.room_id)
+    
+    # 设置is_verified字段（保证前端兼容性）
+    issue.is_verified = issue.status == "已验收"
+    
+    return issue
 
 
 
@@ -435,20 +587,20 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
         # 构建带聚合数据的房间对象
         room_summary = {
             # 基本房间信息
-            'id': room.id,
-            'building_unit': room.building_unit,
-            'room_number': room.room_number,
-            'status': room.status,
-            'delivery_status': room.delivery_status,
-            'contract_status': room.contract_status,
-            'letter_status': room.letter_status,  # 添加信件状态
+            'id': room.id or 0,
+            'building_unit': room.building_unit or "",
+            'room_number': room.room_number or "",
+            'status': room.status or "整改中",
+            'delivery_status': room.delivery_status or "待交付",
+            'contract_status': room.contract_status or "待签约",
+            'letter_status': room.letter_status or "无",  # 添加信件状态
             'expected_delivery_date': room.expected_delivery_date,  # 添加预计交付时间
             'created_at': room.created_at,
             'updated_at': room.updated_at,
             
             # 户主信息
-            'owner_name': owner_name,
-            'owner_phone': owner_phone,
+            'owner_name': owner_name or "",
+            'owner_phone': owner_phone or "",
             
             # 聚合的质量问题信息
             'pending_issues_count': len(pending_issues),
@@ -502,6 +654,7 @@ def clear_room_content(db: Session, room_id: int):
     room.delivery_status = "待交付"
     room.contract_status = "待签约"
     room.letter_status = "无"
+    room.expected_delivery_date = None
     
     db.commit()
     

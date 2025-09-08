@@ -40,15 +40,17 @@
             <el-option label="无" value="无" />
             <el-option label="ZX" value="ZX" />
             <el-option label="SX" value="SX" />
+            <el-option label="ZX+SX" value="ZX+SX" />
           </el-select>
           
           
           <el-button type="primary" @click="refreshData" :loading="loading">
             刷新
           </el-button>
-          <el-button type="success" @click="exportData">
+          <!-- 导出Excel功能临时隐藏，待修复500错误 -->
+          <!-- <el-button type="success" @click="exportData">
             导出Excel
-          </el-button>
+          </el-button> -->
         </div>
       </div>
     </div>
@@ -151,10 +153,13 @@
         </el-table-column>
         
         
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="150">
           <template #default="scope">
             <el-button type="primary" size="small" @click="viewRoom(scope.row)">
               查看
+            </el-button>
+            <el-button type="warning" size="small" @click="resetRoom(scope.row)" style="margin-left: 5px;">
+              重置
             </el-button>
           </template>
         </el-table-column>
@@ -324,37 +329,96 @@ const handleCurrentChange = (newPage) => {
   currentPage.value = newPage
 }
 
-const exportData = () => {
-  // 简单的CSV导出
-  const csvData = [
-    ['楼栋', '房间号', '整改状态', '交付状态', '签约状态', '待验收', '预计交付时间', '信件状态']
-  ]
-  
-  filteredRooms.value.forEach(room => {
-    csvData.push([
-      room.building_unit,
-      room.room_number,
-      room.status,
-      room.delivery_status,
-      room.contract_status,
-      room.pending_issues_count || 0,
-      room.expected_delivery_date ? formatDate(room.expected_delivery_date) : '',
-      room.letter_status || '无'
-    ])
-  })
-  
-  const csvContent = csvData.map(row => row.join(',')).join('\n')
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = `ZWY项目汇总_${new Date().toLocaleDateString()}.csv`
-  link.click()
-  
-  ElMessage.success('数据导出成功')
+const exportData = async () => {
+  try {
+    loading.value = true
+    
+    // 构建查询参数对象
+    const params = {}
+    if (selectedBuilding.value) params.building_unit = selectedBuilding.value
+    if (selectedStatus.value) params.status = selectedStatus.value
+    if (selectedDelivery.value) params.delivery_status = selectedDelivery.value
+    if (selectedContract.value) params.contract_status = selectedContract.value
+    if (selectedIssueFilter.value) params.issue_filter = selectedIssueFilter.value
+    if (selectedLetterFilter.value) params.letter_filter = selectedLetterFilter.value
+    
+    // 调用后端导出接口
+    const response = await adminAPI.exportExcel(params)
+    
+    // 处理文件下载
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    
+    // 从响应头获取文件名，如果没有则使用默认名称
+    const contentDisposition = response.headers['content-disposition']
+    let filename = `ZWY项目汇总_${new Date().toLocaleDateString().replace(/\//g, '')}.xlsx`
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename=['"]?([^'";]*)['"]?/)
+      if (filenameMatch) {
+        filename = filenameMatch[1]
+      }
+    }
+    
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    ElMessage.success('Excel文件导出成功')
+  } catch (error) {
+    console.error('导出Excel失败:', error)
+    ElMessage.error('导出Excel失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    loading.value = false
+  }
 }
 
 const viewRoom = (room) => {
   router.push(`/rooms/${room.id}`)
+}
+
+const resetRoom = async (room) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要重置房间 ${room.building_unit}-${room.room_number} 吗？
+      
+重置操作将：
+• 删除所有质量问题记录
+• 重置整改状态为"整改中"
+• 重置交付状态为"待交付"
+• 重置签约状态为"待签约"
+• 重置信件状态为"无"
+• 清除预计交付时间
+
+保留：
+• 户主信息
+• 用户分配关系`,
+      '重置房间确认',
+      {
+        confirmButtonText: '确定重置',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--warning',
+        dangerouslyUseHTMLString: false
+      }
+    )
+    
+    loading.value = true
+    await adminAPI.resetRoom(room.id)
+    ElMessage.success(`房间 ${room.building_unit}-${room.room_number} 重置成功`)
+    await fetchSummary()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('重置房间失败：' + (error.response?.data?.detail || error.message))
+    }
+  } finally {
+    loading.value = false
+  }
 }
 
 const getRoleName = (role) => {
@@ -382,11 +446,8 @@ const getLetterStatusType = (status) => {
 }
 
 const getLetterStatusStyle = (status) => {
-  const styleMap = {
-    'ZX': 'background-color: #ff4757; border-color: #ff4757; color: white;',
-    'SX': 'background-color: #5f27cd; border-color: #5f27cd; color: white;'
-  }
-  return styleMap[status] || ''
+  // 移除所有信件状态的背景色样式，保持简洁风格
+  return ''
 }
 
 const formatDate = (dateString) => {

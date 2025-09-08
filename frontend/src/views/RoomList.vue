@@ -8,13 +8,6 @@
           <el-option label="3单元" value="3单元" />
           <el-option label="4单元" value="4单元" />
         </el-select>
-        <el-select v-model="selectedStatus" placeholder="选择状态" clearable @change="onFilterChange" style="width: 150px">
-          <el-option label="全部" value="" />
-          <el-option label="整改中" value="整改中" />
-          <el-option label="闭户" value="闭户" />
-          <el-option label="已交付" value="已交付" />
-          <el-option label="已签约" value="已签约" />
-        </el-select>
         <el-button type="primary" @click="refreshData" :loading="loading">
           刷新数据
         </el-button>
@@ -181,7 +174,6 @@ const loading = ref(false)
 const rooms = ref([])
 const qualityIssues = ref([])
 const selectedBuilding = ref('3单元')  // 默认选择3单元
-const selectedStatus = ref('')
 const currentPage = ref(1)
 const pageSize = ref(20)
 
@@ -195,8 +187,7 @@ const selectedFile = ref(null)
 const filteredRooms = computed(() => {
   return rooms.value.filter(room => {
     let matchBuilding = !selectedBuilding.value || room.building_unit === selectedBuilding.value
-    let matchStatus = !selectedStatus.value || room.status === selectedStatus.value
-    return matchBuilding && matchStatus
+    return matchBuilding
   })
 })
 
@@ -257,7 +248,9 @@ const getStatusType = (status) => {
 }
 
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  return new Date(dateString).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai'
+  })
 }
 
 const formatRoomNumber = (roomNumber) => {

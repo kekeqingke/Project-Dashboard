@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 import models, schemas, crud
 from database import SessionLocal, engine, get_db
 import auth
-from typing import List
+from typing import List, Optional
 import os
 import uuid
 import shutil
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from datetime import datetime
+from urllib.parse import quote
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -175,48 +179,49 @@ def read_quality_issues(room_id: int = None, db: Session = Depends(get_db),
 @app.post("/quality-issues/", response_model=schemas.QualityIssue)
 def create_quality_issue(issue: schemas.QualityIssueCreate, db: Session = Depends(get_db),
                         current_user: models.User = Depends(auth.get_current_user)):
+    """创建质量问题 - 限制客户大使和维修工程师"""
+    allowed_roles = ["customer_ambassador", "maintenance_engineer", "project_engineer"]
+    if current_user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="权限不足，无法创建质量问题")
     return crud.create_quality_issue(db=db, issue=issue, user_id=current_user.id)
 
 @app.put("/quality-issues/{issue_id}/accept")
 def accept_quality_issue(issue_id: int, db: Session = Depends(get_db),
                         current_user: models.User = Depends(auth.get_current_user)):
-    return crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+    """验收质量问题 - 限制项目工程师"""
+    if current_user.role != "project_engineer":
+        raise HTTPException(status_code=403, detail="只有项目工程师可以验收质量问题")
+    
+    result = crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=400, detail="验收失败，请检查问题状态")
+    return {"message": "验收成功", "issue": result}
 
-@app.put("/quality-issues/{issue_id}/revoke")
-def revoke_quality_issue(issue_id: int, db: Session = Depends(get_db),
-                        current_user: models.User = Depends(auth.get_current_user)):
-    return crud.revoke_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+@app.delete("/quality-issues/{issue_id}/accept")  
+def revoke_accept_quality_issue(issue_id: int, db: Session = Depends(get_db),
+                               current_user: models.User = Depends(auth.get_current_user)):
+    """撤销验收 - 24小时内且只能撤销自己的验收"""
+    result = crud.revoke_accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=400, detail="撤销失败，可能已超过24小时限制或非本人验收")
+    return {"message": "撤销成功", "issue": result}
 
-@app.put("/quality-issues/{issue_id}/reverify")
-def reverify_quality_issue(issue_id: int, db: Session = Depends(get_db),
+@app.get("/quality-issues/{issue_id}/logs", response_model=List[schemas.QualityIssueLog])
+def get_quality_issue_logs(issue_id: int, db: Session = Depends(get_db),
                           current_user: models.User = Depends(auth.get_current_user)):
-    return crud.reverify_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
+    """获取质量问题操作日志"""
+    return crud.get_quality_issue_logs(db=db, issue_id=issue_id)
 
 @app.put("/quality-issues/{issue_id}", response_model=schemas.QualityIssue)
-def update_quality_issue(issue_id: int, issue_update: dict, db: Session = Depends(get_db),
+def update_quality_issue(issue_id: int, issue_update: schemas.QualityIssueUpdate,
+                        db: Session = Depends(get_db),
                         current_user: models.User = Depends(auth.get_current_user)):
-    # 处理验收操作
-    if issue_update.get("is_verified"):
-        result = crud.accept_quality_issue(db=db, issue_id=issue_id, user_id=current_user.id)
-        if not result:
-            raise HTTPException(status_code=404, detail="质量问题未找到")
-        return result
-    
-    # 处理其他字段的更新
-    # 从dict转换为QualityIssueUpdate对象
-    try:
-        update_data = schemas.QualityIssueUpdate(**issue_update)
-        result = crud.update_quality_issue(
-            db=db, 
-            issue_id=issue_id, 
-            issue_update=update_data,
-            user_id=current_user.id if current_user.role != "admin" else None
-        )
-        if not result:
-            raise HTTPException(status_code=404, detail="质量问题未找到或无权限访问")
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"更新失败: {str(e)}")
+    """更新质量问题 - 只允许创建人修改待验收状态的问题"""
+    result = crud.update_quality_issue(db=db, issue_id=issue_id, 
+                                      issue_update=issue_update, user_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=403, detail="无权限修改此问题或问题已验收")
+    return result
 
 
 # 房间状态更新接口
@@ -286,7 +291,7 @@ async def update_room_letter_status(
         raise HTTPException(status_code=404, detail="房间不存在")
     
     # 验证状态值
-    if letter_status not in ["无", "ZX", "SX"]:
+    if letter_status not in ["无", "ZX", "SX", "ZX+SX"]:
         raise HTTPException(status_code=400, detail="无效的信件状态")
     
     room.letter_status = letter_status
@@ -393,6 +398,24 @@ def clear_room_content(room_id: int, db: Session = Depends(get_db),
     
     return result
 
+# 重置房间接口
+@app.post("/admin/rooms/{room_id}/reset")
+def reset_room(room_id: int, db: Session = Depends(get_db),
+               current_user: models.User = Depends(auth.get_current_user)):
+    """重置房间到初始状态，删除所有质量问题记录，重置状态字段"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以执行此操作")
+    
+    result = crud.clear_room_content(db=db, room_id=room_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    return {
+        "message": f"房间重置成功",
+        "room_id": room_id,
+        "details": result
+    }
+
 @app.delete("/admin/rooms/clear-all-content")
 def clear_all_rooms_content(db: Session = Depends(get_db),
                            current_user: models.User = Depends(auth.get_current_user)):
@@ -426,6 +449,147 @@ def import_room_owners(owner_data: List[schemas.OwnerImportItem],
     
     result = crud.import_room_owners(db=db, owner_data=owner_dict_data)
     return result
+
+# Excel导出接口
+@app.get("/admin/export")
+def export_to_excel(
+    building_unit: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    delivery_status: Optional[str] = Query(None),
+    contract_status: Optional[str] = Query(None),
+    issue_filter: Optional[str] = Query(None),
+    letter_filter: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """导出Excel文件，支持筛选条件"""
+    try:
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="权限不足")
+        
+        # 获取汇总数据
+        summary_data = crud.get_room_summary(db, None)
+        rooms = summary_data["rooms"]
+        
+        # 应用筛选条件
+        filtered_rooms = []
+        for room in rooms:
+            # 楼栋筛选
+            if building_unit and room.get("building_unit") != building_unit:
+                continue
+            
+            # 整改状态筛选
+            if status and room.get("status") != status:
+                continue
+            
+            # 交付状态筛选
+            if delivery_status and room.get("delivery_status") != delivery_status:
+                continue
+            
+            # 签约状态筛选
+            if contract_status and room.get("contract_status") != contract_status:
+                continue
+            
+            # 问题筛选
+            if issue_filter:
+                has_issues = (room.get("pending_issues_count") or 0) > 0
+                if issue_filter == "has_issues" and not has_issues:
+                    continue
+                if issue_filter == "no_issues" and has_issues:
+                    continue
+            
+            # 信件状态筛选
+            if letter_filter:
+                letter_status = room.get("letter_status") or "无"
+                if letter_status != letter_filter:
+                    continue
+            
+            filtered_rooms.append(room)
+        
+        # 创建Excel工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "房间信息汇总"
+        
+        # 设置标题行
+        headers = [
+            "楼栋", "房间号", "户主姓名", "手机号码", "整改状态", 
+            "交付状态", "签约状态", "待验收", "预计交付时间", "信件状态"
+        ]
+        
+        # 写入标题行
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+        
+        # 写入数据行
+        for row_idx, room in enumerate(filtered_rooms, 2):
+            ws.cell(row=row_idx, column=1, value=room.get("building_unit", ""))
+            ws.cell(row=row_idx, column=2, value=room.get("room_number", ""))
+            ws.cell(row=row_idx, column=3, value=room.get("owner_name", "") or "未录入")
+            ws.cell(row=row_idx, column=4, value=room.get("owner_phone", "") or "未录入")
+            ws.cell(row=row_idx, column=5, value=room.get("status", ""))
+            ws.cell(row=row_idx, column=6, value=room.get("delivery_status", ""))
+            ws.cell(row=row_idx, column=7, value=room.get("contract_status", ""))
+            ws.cell(row=row_idx, column=8, value=room.get("pending_issues_count", 0))
+            
+            # 处理日期格式
+            expected_delivery = room.get("expected_delivery_date")
+            if expected_delivery:
+                if isinstance(expected_delivery, str):
+                    try:
+                        date_obj = datetime.fromisoformat(expected_delivery.replace('Z', '+00:00'))
+                        ws.cell(row=row_idx, column=9, value=date_obj.strftime("%Y-%m-%d"))
+                    except:
+                        ws.cell(row=row_idx, column=9, value=expected_delivery)
+                else:
+                    ws.cell(row=row_idx, column=9, value=str(expected_delivery))
+            else:
+                ws.cell(row=row_idx, column=9, value="")
+            
+            ws.cell(row=row_idx, column=10, value=room.get("letter_status", "") or "无")
+        
+        # 自动调整列宽
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 20)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # 保存到内存
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # 生成文件名
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ZWY项目汇总_{current_time}.xlsx"
+        
+        # 返回文件流
+        return StreamingResponse(
+            io.BytesIO(output.getvalue()),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache"
+            }
+        )
+    
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Export error: {str(e)}")
+        print(f"Error details: {error_details}")
+        raise HTTPException(status_code=500, detail=f"导出Excel文件失败: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

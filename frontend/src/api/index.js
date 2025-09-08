@@ -72,7 +72,12 @@ export const communicationAPI = {
 
 export const adminAPI = {
   getSummary: (buildingUnit) => api.get('/admin/summary', { params: { building_unit: buildingUnit } }),
-  importRoomOwners: (ownerData) => api.post('/admin/import-room-owners', ownerData)
+  importRoomOwners: (ownerData) => api.post('/admin/import-room-owners', ownerData),
+  resetRoom: (roomId) => api.post(`/admin/rooms/${roomId}/reset`),
+  exportExcel: (params) => api.get('/admin/export', { 
+    params: params,
+    responseType: 'blob' 
+  })
 }
 
 

@@ -23,7 +23,7 @@
             @click="selectRoom(room.id)"
           >
             <div class="room-header">
-              <h4>{{ room.building_unit }} {{ room.room_number }}号房</h4>
+              <h4>{{ room.building_unit }} {{ formatRoomNumber(room.room_number) }}号房</h4>
               <el-tag :type="getStatusType(room.status)">{{ room.status }}</el-tag>
             </div>
             
@@ -41,123 +41,151 @@
 
       <!-- 房间详情面板 -->
       <div v-if="selectedRoomId && currentRoom" class="room-details">
-        <!-- 房间状态管理模块 - 水平布局 -->
-        <el-card class="status-management-card">
+        <!-- 合并后的房间信息与状态管理卡片 -->
+        <el-card class="unified-room-card">
           <template #header>
-            <div class="module-header">
-              <div class="module-title">
-                <el-icon><Setting /></el-icon>
-                <span>房间状态管理</span>
+            <div class="room-header">
+              <div class="room-title">
+                <el-icon><House /></el-icon>
+                <h4>{{ currentRoom.building_unit }} {{ formatRoomNumber(currentRoom.room_number) }}号房 - 信息与状态管理</h4>
+              </div>
+              <el-tag :type="getStatusType(currentRoom.status)" size="large">{{ currentRoom.status }}</el-tag>
+            </div>
+          </template>
+          
+          <!-- 状态管理区域 -->
+          <div class="status-management-section">
+            <div class="section-title">
+              <el-icon><Setting /></el-icon>
+              <span>状态管理</span>
+            </div>
+            <div class="status-controls">
+              <div class="status-item">
+                <label>交付状态</label>
+                <el-select 
+                  v-model="statusForm.delivery_status" 
+                  placeholder="请选择交付状态"
+                  size="small"
+                  @change="updateDeliveryStatus"
+                  :disabled="statusUpdateLoading"
+                >
+                  <el-option label="待交付" value="待交付" />
+                  <el-option label="已交付" value="已交付" />
+                </el-select>
+              </div>
+              
+              <div class="status-item">
+                <label>签约状态</label>
+                <el-select 
+                  v-model="statusForm.contract_status" 
+                  placeholder="请选择签约状态"
+                  size="small"
+                  @change="updateContractStatus"
+                  :disabled="statusUpdateLoading"
+                >
+                  <el-option label="待签约" value="待签约" />
+                  <el-option label="已签约" value="已签约" />
+                </el-select>
+              </div>
+              
+              <div class="status-item">
+                <label>信件状态</label>
+                <el-select 
+                  v-model="statusForm.letter_status" 
+                  placeholder="请选择信件状态"
+                  size="small"
+                  @change="updateLetterStatus"
+                  :disabled="statusUpdateLoading"
+                >
+                  <el-option label="无" value="无" />
+                  <el-option label="ZX" value="ZX" />
+                  <el-option label="SX" value="SX" />
+                  <el-option label="ZX+SX" value="ZX+SX" />
+                </el-select>
+              </div>
+              
+              <div class="status-item">
+                <label>预计交付时间</label>
+                <el-date-picker
+                  v-model="statusForm.expected_delivery_date"
+                  type="date"
+                  placeholder="选择时间"
+                  format="YYYY/MM/DD"
+                  value-format="YYYY-MM-DD"
+                  size="small"
+                  @change="updateExpectedDeliveryDate"
+                  :disabled="statusUpdateLoading"
+                  style="width: 150px;"
+                  clearable
+                />
               </div>
             </div>
-          </template>
-          
-          <div class="status-management-horizontal">
-            <div class="status-item">
-              <label>整改状态</label>
-              <el-tag :type="getStatusType(currentRoom.status)" size="large">
-                {{ currentRoom.status }}
-              </el-tag>
-            </div>
-            
-            <div class="status-item">
-              <label>交付状态</label>
-              <el-select 
-                v-model="statusForm.delivery_status" 
-                placeholder="请选择交付状态"
-                size="small"
-                @change="updateDeliveryStatus"
-                :disabled="statusUpdateLoading"
-              >
-                <el-option label="待交付" value="待交付" />
-                <el-option label="已交付" value="已交付" />
-              </el-select>
-            </div>
-            
-            <div class="status-item">
-              <label>签约状态</label>
-              <el-select 
-                v-model="statusForm.contract_status" 
-                placeholder="请选择签约状态"
-                size="small"
-                @change="updateContractStatus"
-                :disabled="statusUpdateLoading"
-              >
-                <el-option label="待签约" value="待签约" />
-                <el-option label="已签约" value="已签约" />
-              </el-select>
-            </div>
-            
-            <div class="status-item">
-              <label>信件状态</label>
-              <el-select 
-                v-model="statusForm.letter_status" 
-                placeholder="请选择信件状态"
-                size="small"
-                @change="updateLetterStatus"
-                :disabled="statusUpdateLoading"
-              >
-                <el-option label="无" value="无" />
-                <el-option label="ZX" value="ZX" />
-                <el-option label="SX" value="SX" />
-              </el-select>
-            </div>
-            
-            <div class="status-item">
-              <label>预计交付时间</label>
-              <el-date-picker
-                v-model="statusForm.expected_delivery_date"
-                type="date"
-                placeholder="选择时间"
-                format="YYYY/MM/DD"
-                value-format="YYYY-MM-DD"
-                size="small"
-                @change="updateExpectedDeliveryDate"
-                :disabled="statusUpdateLoading"
-                style="width: 150px;"
-                clearable
-              />
-            </div>
           </div>
-        </el-card>
 
-        <el-card class="room-info-card">
-          <template #header>
-            <div class="room-info-header">
-              <h4>{{ currentRoom.building_unit }} {{ currentRoom.room_number }}号房 - 详细信息</h4>
-              <el-tag :type="getStatusType(currentRoom.status)">{{ currentRoom.status }}</el-tag>
+          <!-- 质量问题统计区域 -->
+          <div class="statistics-section">
+            <div class="section-title">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>质量问题统计</span>
             </div>
-          </template>
-          
-          <div class="room-info-grid">
-            <div class="info-item">
-              <label>交付状态：</label>
-              <el-tag :type="currentRoom.delivery_status === '已交付' ? 'success' : 'warning'" size="small">
-                {{ currentRoom.delivery_status }}
-              </el-tag>
+            <div class="stats-grid">
+              <div class="stat-card">
+                <el-statistic title="总计" :value="roomStats.total" />
+                <el-icon class="stat-icon total"><Document /></el-icon>
+              </div>
+              <div class="stat-card">
+                <el-statistic title="待验收" :value="roomStats.pending" />
+                <el-icon class="stat-icon pending"><Clock /></el-icon>
+              </div>
+              <div class="stat-card">
+                <el-statistic title="已验收" :value="roomStats.completed" />
+                <el-icon class="stat-icon completed"><CircleCheck /></el-icon>
+              </div>
+              <div class="stat-card completion-rate">
+                <el-statistic title="验收完成率" :value="roomStats.completionRate" suffix="%" />
+                <el-progress 
+                  :percentage="roomStats.completionRate" 
+                  :stroke-width="8"
+                  :show-text="false"
+                  color="#67c23a"
+                  class="progress-bar"
+                />
+                <el-icon class="stat-icon completed"><CircleCheck /></el-icon>
+              </div>
             </div>
-            <div class="info-item">
-              <label>签约状态：</label>
-              <el-tag :type="currentRoom.contract_status === '已签约' ? 'success' : 'warning'" size="small">
-                {{ currentRoom.contract_status }}
-              </el-tag>
-            </div>
-            <div class="info-item">
-              <label>预计交付时间：</label>
-              <span>{{ currentRoom.expected_delivery_date ? formatDate(currentRoom.expected_delivery_date) : '未设置' }}</span>
-            </div>
-            <div class="info-item">
-              <label>最后更新：</label>
-              <span>{{ formatDate(currentRoom.updated_at) }}</span>
+            
+            <!-- 问题类型分布 -->
+            <div class="type-distribution">
+              <div class="type-item">
+                <span class="type-label">🔧 质量瑕疵:</span>
+                <span class="type-stats">{{ roomStats.qualityDefects.total }} (待验收:{{ roomStats.qualityDefects.pending }} | 已验收:{{ roomStats.qualityDefects.completed }})</span>
+              </div>
+              <div class="type-item">
+                <span class="type-label">📦 材料备货:</span>
+                <span class="type-stats">{{ roomStats.materialPrep.total }} (待验收:{{ roomStats.materialPrep.pending }} | 已验收:{{ roomStats.materialPrep.completed }})</span>
+              </div>
             </div>
           </div>
 
-          <div class="stats-row">
-            <div class="stat-item">
-              <el-statistic title="质量问题总数" :value="currentRoom.quality_issue_count || 0" />
+          <!-- 责任分工区域 -->
+          <div class="assignment-section">
+            <div class="section-title">
+              <el-icon><User /></el-icon>
+              <span>责任分工</span>
             </div>
-            <div class="stat-item">
-              <el-statistic title="待验收" :value="currentRoom.pending_verification_count || 0" />
+            <div class="assignment-grid">
+              <div class="assignment-item">
+                <span class="role-label">🤝 客户大使:</span>
+                <span class="person-name">{{ getUserByRole(currentRoom.assigned_users, 'customer_ambassador')?.name || '未分配' }}</span>
+              </div>
+              <div class="assignment-item">
+                <span class="role-label">🔧 项目工程师:</span>
+                <span class="person-name">{{ getUserByRole(currentRoom.assigned_users, 'project_engineer')?.name || '未分配' }}</span>
+              </div>
+              <div class="assignment-item">
+                <span class="role-label">🛠️ 维修工程师:</span>
+                <span class="person-name">{{ getUserByRole(currentRoom.assigned_users, 'maintenance_engineer')?.name || '未分配' }}</span>
+              </div>
             </div>
           </div>
         </el-card>
@@ -217,6 +245,7 @@
                 </div>
                 <div class="issue-actions">
                   <el-button 
+                    v-if="issue.status === '待验收'"
                     type="primary" 
                     size="small"
                     @click="editQualityIssue(issue)"
@@ -224,13 +253,14 @@
                     编辑
                   </el-button>
                   <el-button 
-                    v-if="issue.status === '待验收'" 
-                    type="success" 
+                    type="info" 
                     size="small"
-                    @click="acceptIssue(issue)"
+                    @click="viewIssueLogs(issue.id)"
                   >
-                    验收
+                    <el-icon><Document /></el-icon>
+                    查看日志
                   </el-button>
+                  <!-- 客户大使不显示验收按钮，只有项目工程师可以验收 -->
                 </div>
               </div>
             </div>
@@ -247,7 +277,7 @@
     >
       <el-form :model="qualityIssueForm" label-width="100px" ref="qualityIssueFormRef">
         <el-form-item label="房间">
-          <span>{{ currentRoom?.building_unit }} {{ currentRoom?.room_number }}号房</span>
+          <span>{{ currentRoom?.building_unit }} {{ formatRoomNumber(currentRoom?.room_number) }}号房</span>
         </el-form-item>
         <el-form-item label="问题描述" required>
           <el-input
@@ -323,13 +353,79 @@
         <el-button type="primary" @click="saveQualityIssue">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 操作日志查看对话框 -->
+    <el-dialog
+      v-model="logsDialogVisible"
+      title="操作日志"
+      width="800px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="logsLoading" class="logs-loading">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span>加载日志中...</span>
+      </div>
+      
+      <div v-else-if="issueLogs.length === 0" class="logs-empty">
+        <el-empty description="暂无操作日志" />
+      </div>
+      
+      <div v-else class="logs-container">
+        <div class="logs-timeline">
+          <div 
+            v-for="(log, index) in issueLogs" 
+            :key="log.id"
+            class="log-item"
+            :class="getLogItemClass(log.action)"
+          >
+            <div class="log-dot">
+              <el-icon :class="getLogIconClass(log.action)">
+                <component :is="getLogIcon(log.action)" />
+              </el-icon>
+            </div>
+            
+            <div class="log-content">
+              <div class="log-header">
+                <div class="log-action">{{ getLogActionText(log.action) }}</div>
+                <div class="log-time">{{ formatDateTime(log.timestamp) }}</div>
+              </div>
+              
+              <div class="log-operator">
+                <el-icon><User /></el-icon>
+                <span>{{ log.operator_name }}</span>
+                <el-tag size="small" type="info">{{ log.operator_role }}</el-tag>
+              </div>
+              
+              <div v-if="log.remarks" class="log-remarks">
+                <strong>备注:</strong> {{ log.remarks }}
+              </div>
+              
+              <div v-if="log.before_data || log.after_data" class="log-data">
+                <div v-if="log.before_data" class="data-before">
+                  <strong>变更前:</strong>
+                  <pre>{{ formatLogData(log.before_data) }}</pre>
+                </div>
+                <div v-if="log.after_data" class="data-after">
+                  <strong>变更后:</strong>
+                  <pre>{{ formatLogData(log.after_data) }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <template #footer>
+        <el-button @click="logsDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, Warning, Plus, Upload, Close, Setting } from '@element-plus/icons-vue'
+import { Loading, Warning, Plus, Upload, Close, Setting, House, DataAnalysis, Document, Clock, CircleCheck, User, Edit, Check, RefreshLeft } from '@element-plus/icons-vue'
 import api from '../api'
 
 // 响应式数据
@@ -342,6 +438,12 @@ const qualityIssues = ref([])
 // 对话框控制
 const qualityIssueDialogVisible = ref(false)
 const editingQualityIssue = ref(null)
+
+// 日志查看控制
+const logsDialogVisible = ref(false)
+const logsLoading = ref(false)
+const issueLogs = ref([])
+const currentIssueId = ref(null)
 
 // 表单引用
 const qualityIssueFormRef = ref(null)
@@ -365,6 +467,44 @@ const statusForm = ref({
 
 
 const statusUpdateLoading = ref(false)
+
+// 简化的统计计算
+const roomStats = computed(() => {
+  const issues = qualityIssues.value
+  
+  return {
+    total: issues.length,
+    pending: issues.filter(i => i.status === '待验收').length,
+    completed: issues.filter(i => i.status === '已验收').length,
+    completionRate: issues.length > 0 ? 
+      Math.round((issues.filter(i => i.status === '已验收').length / issues.length) * 100) : 0,
+    
+    // 按类型分组统计
+    qualityDefects: {
+      total: issues.filter(i => i.issue_type === '质量瑕疵').length,
+      pending: issues.filter(i => i.issue_type === '质量瑕疵' && i.status === '待验收').length,
+      completed: issues.filter(i => i.issue_type === '质量瑕疵' && i.status === '已验收').length
+    },
+    materialPrep: {
+      total: issues.filter(i => i.issue_type === '材料备货').length,
+      pending: issues.filter(i => i.issue_type === '材料备货' && i.status === '待验收').length,
+      completed: issues.filter(i => i.issue_type === '材料备货' && i.status === '已验收').length
+    }
+  }
+})
+
+// 格式化房号，去掉前导零
+const formatRoomNumber = (roomNumber) => {
+  if (!roomNumber) return roomNumber
+  // 将房号转为字符串，然后去掉前导零
+  return parseInt(roomNumber).toString()
+}
+
+// 获取指定角色的用户
+const getUserByRole = (users, role) => {
+  if (!users || users.length === 0) return null
+  return users.find(user => user.role === role) || null
+}
 
 // 组件挂载时获取数据
 onMounted(async () => {
@@ -469,7 +609,9 @@ const getIssueStatusType = (status) => {
 const formatDate = (dateString) => {
   if (!dateString) return ''
   const date = new Date(dateString)
-  return date.toLocaleString('zh-CN')
+  return date.toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai'
+  })
 }
 
 // 格式化日期 - 只显示年月日
@@ -562,33 +704,7 @@ const saveQualityIssue = async () => {
   }
 }
 
-// 验收质量问题
-const acceptIssue = async (issue) => {
-  try {
-    await ElMessageBox.confirm(
-      '确认验收此质量问题吗？验收后将标记为已验收状态。',
-      '验收确认',
-      {
-        confirmButtonText: '确认验收',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    
-    await api.put(`/quality-issues/${issue.id}/accept`)
-    ElMessage.success('质量问题验收成功')
-    
-    // 刷新数据
-    await fetchRoomDetails(selectedRoomId.value)
-    await fetchRooms()
-    
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('验收质量问题失败:', error)
-      ElMessage.error('验收质量问题失败')
-    }
-  }
-}
+// 客户大使不需要验收功能，验收由项目工程师负责
 
 // 图片上传相关
 const beforeImageUpload = (file) => {
@@ -698,6 +814,92 @@ const batchUpdateStatus = async () => {
   } finally {
     statusUpdateLoading.value = false
   }
+}
+
+// 日志查看相关方法
+const viewIssueLogs = async (issueId) => {
+  currentIssueId.value = issueId
+  logsDialogVisible.value = true
+  logsLoading.value = true
+  
+  try {
+    const response = await api.get(`/quality-issues/${issueId}/logs`)
+    issueLogs.value = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+  } catch (error) {
+    console.error('获取操作日志失败:', error)
+    ElMessage.error('获取操作日志失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+// 日志相关格式化方法
+const getLogActionText = (action) => {
+  const actionMap = {
+    'CREATE': '创建问题',
+    'UPDATE': '修改问题',
+    'ACCEPT': '验收通过',
+    'REVOKE_ACCEPT': '撤销验收',
+    'REVERIFY': '复验通过'
+  }
+  return actionMap[action] || action
+}
+
+const getLogIcon = (action) => {
+  const iconMap = {
+    'CREATE': Plus,
+    'UPDATE': Edit,
+    'ACCEPT': Check,
+    'REVOKE_ACCEPT': RefreshLeft,
+    'REVERIFY': Check
+  }
+  return iconMap[action] || Document
+}
+
+const getLogIconClass = (action) => {
+  const classMap = {
+    'CREATE': 'log-icon-create',
+    'UPDATE': 'log-icon-update',
+    'ACCEPT': 'log-icon-accept',
+    'REVOKE_ACCEPT': 'log-icon-revoke',
+    'REVERIFY': 'log-icon-reverify'
+  }
+  return classMap[action] || 'log-icon-default'
+}
+
+const getLogItemClass = (action) => {
+  const classMap = {
+    'CREATE': 'log-item-create',
+    'UPDATE': 'log-item-update',
+    'ACCEPT': 'log-item-accept',
+    'REVOKE_ACCEPT': 'log-item-revoke',
+    'REVERIFY': 'log-item-reverify'
+  }
+  return classMap[action] || 'log-item-default'
+}
+
+const formatLogData = (data) => {
+  if (!data) return ''
+  try {
+    const parsed = JSON.parse(data)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return data
+  }
+}
+
+const formatDateTime = (datetime) => {
+  if (!datetime) return ''
+  const date = new Date(datetime)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Shanghai'
+  })
 }
 
 </script>
@@ -986,15 +1188,59 @@ const batchUpdateStatus = async () => {
   padding: 0;
 }
 
-.status-management-card {
+/* 合并后的统一房间卡片样式 */
+.unified-room-card {
   margin-bottom: 20px;
 }
 
-.status-management-horizontal {
+.room-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.room-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.room-title h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+/* 分区样式 */
+.status-management-section,
+.statistics-section,
+.assignment-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.assignment-section {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 16px;
+}
+
+/* 状态管理区域 */
+.status-controls {
   display: flex;
   align-items: flex-end;
   gap: 20px;
-  padding: 16px;
   flex-wrap: wrap;
 }
 
@@ -1021,8 +1267,280 @@ const batchUpdateStatus = async () => {
   min-width: 150px;
 }
 
-.status-item .el-text {
+/* 统计区域 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  position: relative;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  border-color: #409eff;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.15);
+}
+
+.stat-card .stat-icon {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 20px;
+  opacity: 0.6;
+}
+
+.stat-icon.total { color: #409eff; }
+.stat-icon.pending { color: #e6a23c; }
+.stat-icon.completed { color: #67c23a; }
+
+.completion-rate {
+  background: #ffffff;
+  border: 2px solid #67c23a;
+  color: #303133;
+}
+
+.completion-rate .stat-icon {
+  color: #67c23a;
+}
+
+.progress-bar {
+  margin-top: 8px;
+}
+
+/* 问题类型分布 */
+.type-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fafbfc;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.type-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 4px;
+}
+
+.type-label {
+  font-weight: 600;
+  color: #303133;
+  margin-right: 16px;
+  min-width: 80px;
+}
+
+.type-stats {
+  color: #606266;
+  font-size: 14px;
+  flex: 1;
+}
+
+/* 责任分工区域 */
+.assignment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.assignment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.role-label {
+  font-weight: 600;
+  color: #303133;
+}
+
+.person-name {
+  color: #606266;
+  font-weight: 500;
+}
+
+/* 日志查看对话框样式 */
+.logs-loading, .logs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #909399;
+}
+
+.logs-loading .el-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+}
+
+.logs-container {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.logs-timeline {
+  position: relative;
+  padding-left: 30px;
+}
+
+.logs-timeline::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #e4e7ed, #c0c4cc);
+}
+
+.log-item {
+  position: relative;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+}
+
+.log-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.log-dot {
+  position: absolute;
+  left: -22px;
+  top: 2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border: 2px solid #e4e7ed;
+  z-index: 1;
+}
+
+.log-item-create .log-dot {
+  border-color: #67c23a;
+}
+
+.log-item-update .log-dot {
+  border-color: #e6a23c;
+}
+
+.log-item-accept .log-dot {
+  border-color: #409eff;
+}
+
+.log-item-revoke .log-dot {
+  border-color: #f56c6c;
+}
+
+.log-icon-create {
+  color: #67c23a;
+}
+
+.log-icon-update {
+  color: #e6a23c;
+}
+
+.log-icon-accept {
+  color: #409eff;
+}
+
+.log-icon-revoke {
+  color: #f56c6c;
+}
+
+.log-icon-default {
+  color: #909399;
+}
+
+.log-content {
+  background: #fafbfc;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px;
+  margin-left: 8px;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.log-action {
+  font-weight: 600;
+  color: #303133;
+  font-size: 14px;
+}
+
+.log-time {
+  font-size: 12px;
+  color: #909399;
+}
+
+.log-operator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #606266;
+}
+
+.log-remarks {
+  margin: 8px 0;
+  font-size: 13px;
+  color: #606266;
+}
+
+.log-data {
+  margin-top: 12px;
+  border-top: 1px solid #ebeef5;
+  padding-top: 12px;
+}
+
+.data-before, .data-after {
+  margin-bottom: 8px;
+}
+
+.data-before strong, .data-after strong {
+  color: #606266;
+  font-size: 12px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.log-data pre {
+  background: #f5f7fa;
+  padding: 8px;
+  border-radius: 4px;
   font-size: 11px;
-  line-height: 1.2;
+  color: #606266;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+  margin: 0;
 }
 </style>

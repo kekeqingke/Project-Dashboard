@@ -44,10 +44,17 @@ def kill_port(port):
                 
                 for pid in pids:
                     try:
-                        subprocess.run(f'taskkill /F /PID {pid}', shell=True, check=True)
-                        print(f"✓ 已终止端口 {port} 上的进程 (PID: {pid})")
-                    except subprocess.CalledProcessError:
-                        pass
+                        # 使用正确的taskkill语法，/T杀死进程树，/F强制终止
+                        subprocess.run(f'taskkill /PID {pid} /T /F', shell=True, check=True)
+                        print(f"✓ 已终止端口 {port} 上的进程树 (PID: {pid})")
+                    except subprocess.CalledProcessError as e:
+                        print(f"⚠ 无法终止进程 {pid}: {e}")
+                        # 尝试强制杀死Python进程
+                        try:
+                            subprocess.run(f'taskkill /IM python.exe /F', shell=True, check=False)
+                            print(f"✓ 强制终止了所有Python进程")
+                        except:
+                            pass
         else:
             # Linux/Mac系统
             result = subprocess.run(

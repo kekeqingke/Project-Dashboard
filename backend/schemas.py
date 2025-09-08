@@ -114,10 +114,6 @@ class QualityIssue(QualityIssueBase):
     issue_type: str
     accepted_by: Optional[int] = None
     accepted_at: Optional[datetime] = None
-    revoked_by: Optional[int] = None
-    revoked_at: Optional[datetime] = None
-    reverified_by: Optional[int] = None
-    reverified_at: Optional[datetime] = None
     record_date: Optional[datetime] = None  # 录入时间
     created_at: datetime
     
@@ -126,17 +122,34 @@ class QualityIssue(QualityIssueBase):
     user_role: Optional[str] = None
     acceptor_name: Optional[str] = None
     acceptor_role: Optional[str] = None
-    revoker_name: Optional[str] = None
-    revoker_role: Optional[str] = None
-    reverifier_name: Optional[str] = None
-    reverifier_role: Optional[str] = None
     
     is_verified: Optional[bool] = None
     
     def model_post_init(self, __context) -> None:
         """模型初始化后设置is_verified字段"""
         if hasattr(self, 'status'):
-            self.is_verified = self.status in ["已验收", "已复验"]
+            self.is_verified = self.status == "已验收"
+    
+    class Config:
+        from_attributes = True
+
+# 操作日志相关schemas
+class QualityIssueLogBase(BaseModel):
+    issue_id: int
+    action: str
+    operator_id: int
+    operator_name: Optional[str] = None
+    operator_role: Optional[str] = None
+    before_data: Optional[str] = None
+    after_data: Optional[str] = None
+    remarks: Optional[str] = None
+
+class QualityIssueLogCreate(QualityIssueLogBase):
+    pass
+
+class QualityIssueLog(QualityIssueLogBase):
+    id: int
+    timestamp: datetime
     
     class Config:
         from_attributes = True
