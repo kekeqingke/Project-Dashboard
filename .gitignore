@@ -171,6 +171,9 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+backend/*.db
+backend/quality_management_backup_*.db
+zwy_project.db
 
 # 日志文件
 *.log

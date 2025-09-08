@@ -8,10 +8,6 @@
       <h3 class="room-title" v-if="roomInfo">{{ roomInfo.building_unit }} {{ roomInfo.room_number }}号房</h3>
       <h3 class="room-title loading-title" v-else>加载中...</h3>
       <div class="header-actions">
-        <el-button type="primary" @click="downloadPDF" :loading="pdfLoading">
-          <el-icon><Download /></el-icon>
-          下载PDF
-        </el-button>
         <el-tag :type="getStatusType(roomInfo?.status)">{{ roomInfo?.status }}</el-tag>
       </div>
     </div>
@@ -53,41 +49,6 @@
       </el-tab-pane>
 
 
-      <el-tab-pane label="客户信息" name="customer">
-        <div class="customer-info-container" v-if="customerInfo">
-          <div class="customer-info-grid">
-            <div class="info-item">
-              <label>姓名：</label>
-              <span>{{ customerInfo.name }}</span>
-            </div>
-            <div class="info-item">
-              <label>性别：</label>
-              <span>{{ customerInfo.gender }}</span>
-            </div>
-            <div class="info-item">
-              <label>客户分级：</label>
-              <el-tag :type="getCustomerLevelType(customerInfo.customer_level)" size="small">
-                {{ customerInfo.customer_level }}
-              </el-tag>
-            </div>
-            <div class="info-item">
-              <label>身份证号：</label>
-              <span>{{ customerInfo.id_card }}</span>
-            </div>
-            <div class="info-item">
-              <label>手机号：</label>
-              <span>{{ customerInfo.phone }}</span>
-            </div>
-            <div class="info-item">
-              <label>工作单位：</label>
-              <span>{{ customerInfo.work_unit || '-' }}</span>
-            </div>
-          </div>
-        </div>
-        <div v-else class="no-customer-info">
-          <el-empty description="暂无客户信息" />
-        </div>
-      </el-tab-pane>
     </el-tabs>
 
     <!-- 添加质量问题对话框 -->
@@ -131,13 +92,12 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { roomAPI, qualityIssueAPI } from '../api/index.js'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Plus, Download } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
 const loading = ref(false)
 const activeTab = ref('issues')
-const pdfLoading = ref(false)
 
 const roomInfo = ref(null)
 const qualityIssues = ref([])
@@ -264,48 +224,7 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString('zh-CN')
 }
 
-const getCustomerLevelType = (level) => {
-  const levelMap = {
-    'A': 'success',
-    'B': 'warning', 
-    'C': 'danger'
-  }
-  return levelMap[level] || 'info'
-}
 
-const downloadPDF = async () => {
-  pdfLoading.value = true
-  try {
-    const response = await roomAPI.exportPdf(route.params.id)
-    
-    // 创建下载链接
-    const url = window.URL.createObjectURL(response.data)
-    const link = document.createElement('a')
-    link.href = url
-    
-    // 从响应头获取文件名，如果没有则使用默认名称
-    let filename = `瑧湾悦二期-${roomInfo.value?.building_unit}-${roomInfo.value?.room_number}-沟通记录.pdf`
-    const contentDisposition = response.headers['content-disposition']
-    if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename=(.+)/)
-      if (filenameMatch) {
-        filename = filenameMatch[1].replace(/"/g, '')
-      }
-    }
-    
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
-    
-    ElMessage.success('PDF下载成功')
-  } catch (error) {
-    ElMessage.error('PDF下载失败：' + (error.response?.data?.detail || error.message))
-  } finally {
-    pdfLoading.value = false
-  }
-}
 
 onMounted(() => {
   fetchRoomData()
