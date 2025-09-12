@@ -47,10 +47,9 @@
           <el-button type="primary" @click="refreshData" :loading="loading">
             刷新
           </el-button>
-          <!-- 导出Excel功能临时隐藏，待修复500错误 -->
-          <!-- <el-button type="success" @click="exportData">
+          <el-button type="success" @click="exportData">
             导出Excel
-          </el-button> -->
+          </el-button>
         </div>
       </div>
     </div>
@@ -153,14 +152,16 @@
         </el-table-column>
         
         
-        <el-table-column label="操作" width="150">
+        <el-table-column label="操作" width="200">
           <template #default="scope">
-            <el-button type="primary" size="small" @click="viewRoom(scope.row)">
-              查看
-            </el-button>
-            <el-button type="warning" size="small" @click="resetRoom(scope.row)" style="margin-left: 5px;">
-              重置
-            </el-button>
+            <div style="display: flex; gap: 8px;">
+              <el-button type="primary" size="small" @click="viewRoom(scope.row)" style="white-space: nowrap; flex: 1;">
+                查看详情
+              </el-button>
+              <el-button type="warning" size="small" @click="resetRoom(scope.row)" style="white-space: nowrap; flex: 1;">
+                重置信息
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -200,7 +201,7 @@ const summaryData = ref({
 })
 
 // 筛选条件
-const selectedBuilding = ref('3单元')  // 默认选择3单元
+const selectedBuilding = ref('')  // 默认显示全部楼栋
 const selectedStatus = ref('')
 const selectedDelivery = ref('')
 const selectedContract = ref('')
@@ -385,19 +386,7 @@ const viewRoom = (room) => {
 const resetRoom = async (room) => {
   try {
     await ElMessageBox.confirm(
-      `确定要重置房间 ${room.building_unit}-${room.room_number} 吗？
-      
-重置操作将：
-• 删除所有质量问题记录
-• 重置整改状态为"整改中"
-• 重置交付状态为"待交付"
-• 重置签约状态为"待签约"
-• 重置信件状态为"无"
-• 清除预计交付时间
-
-保留：
-• 户主信息
-• 用户分配关系`,
+      `确定要重置房间 ${room.building_unit}-${room.room_number} 吗？此操作将清除所有质量问题和状态信息，但保留户主信息。`,
       '重置房间确认',
       {
         confirmButtonText: '确定重置',

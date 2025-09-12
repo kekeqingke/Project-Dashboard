@@ -53,19 +53,66 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = auth.create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer", "user": user}
+    # 检查是否首次登录
+    first_login = not user.password_changed
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer", 
+        "user": user,
+        "first_login": first_login
+    }
 
 @app.get("/users/me", response_model=schemas.User)
 async def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
+@app.post("/users/change-password", response_model=schemas.PasswordChangeResponse)
+async def change_password(
+    password_data: schemas.PasswordChangeRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 验证当前密码
+    if not auth.verify_password(password_data.current_password, current_user.password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码错误"
+        )
+    
+    # 检查新密码不能与当前密码相同
+    if auth.verify_password(password_data.new_password, current_user.password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码不能与当前密码相同"
+        )
+    
+    # 更新密码
+    current_user.password = auth.get_password_hash(password_data.new_password)
+    current_user.password_changed = True
+    db.commit()
+    
+    return schemas.PasswordChangeResponse(
+        message="密码修改成功",
+        success=True
+    )
+
 # 用户管理接口
-@app.post("/users/", response_model=schemas.User)
+@app.post("/users/", response_model=schemas.UserCreateResponse)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), 
                 current_user: models.User = Depends(auth.get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="权限不足")
-    return crud.create_user(db=db, user=user)
+    
+    # 生成初始密码
+    initial_password = user.password if user.password else crud.generate_initial_password()
+    
+    # 创建用户
+    created_user = crud.create_user(db=db, user=user)
+    
+    return schemas.UserCreateResponse(
+        user=created_user,
+        initial_password=initial_password
+    )
 
 @app.get("/users/", response_model=List[schemas.User])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
@@ -206,6 +253,15 @@ def revoke_accept_quality_issue(issue_id: int, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="撤销失败，可能已超过24小时限制或非本人验收")
     return {"message": "撤销成功", "issue": result}
 
+@app.get("/quality-issues/{issue_id}", response_model=schemas.QualityIssue)
+def get_quality_issue(issue_id: int, db: Session = Depends(get_db),
+                     current_user: models.User = Depends(auth.get_current_user)):
+    """获取单个质量问题详情"""
+    issue = crud.get_quality_issue_by_id(db=db, issue_id=issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="质量问题不存在")
+    return issue
+
 @app.get("/quality-issues/{issue_id}/logs", response_model=List[schemas.QualityIssueLog])
 def get_quality_issue_logs(issue_id: int, db: Session = Depends(get_db),
                           current_user: models.User = Depends(auth.get_current_user)):
@@ -222,6 +278,18 @@ def update_quality_issue(issue_id: int, issue_update: schemas.QualityIssueUpdate
     if not result:
         raise HTTPException(status_code=403, detail="无权限修改此问题或问题已验收")
     return result
+
+@app.delete("/quality-issues/{issue_id}")
+def delete_quality_issue(issue_id: int, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(auth.get_current_user)):
+    """删除质量问题 - 仅管理员可操作"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员可删除质量问题")
+    
+    success = crud.delete_quality_issue(db=db, issue_id=issue_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="质量问题不存在")
+    return {"message": "质量问题删除成功"}
 
 
 # 房间状态更新接口
@@ -450,6 +518,29 @@ def import_room_owners(owner_data: List[schemas.OwnerImportItem],
     result = crud.import_room_owners(db=db, owner_data=owner_dict_data)
     return result
 
+# Excel导入用户房间分配接口
+@app.post("/admin/import-user-room-assignments", response_model=schemas.UserRoomAssignmentImportResult)
+def import_user_room_assignments(assignment_data: List[schemas.UserRoomAssignmentImportItem], 
+                                db: Session = Depends(get_db),
+                                current_user: models.User = Depends(auth.get_current_user)):
+    """批量导入用户房间分配"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="权限不足，只有管理员可以导入数据")
+    
+    # 转换为dict格式
+    assignment_dict_data = []
+    for item in assignment_data:
+        assignment_dict_data.append({
+            'username': item.username,
+            'name': item.name,
+            'role': item.role,
+            'building_unit': item.building_unit,
+            'room_numbers': item.room_numbers,
+        })
+    
+    result = crud.import_user_room_assignments(db=db, assignment_data=assignment_dict_data)
+    return result
+
 # Excel导出接口
 @app.get("/admin/export")
 def export_to_excel(
@@ -572,13 +663,14 @@ def export_to_excel(
         # 生成文件名
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"ZWY项目汇总_{current_time}.xlsx"
+        encoded_filename = quote(filename, safe='')
         
         # 返回文件流
         return StreamingResponse(
             io.BytesIO(output.getvalue()),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": f'attachment; filename*=UTF-8\'\'{encoded_filename}',
                 "Cache-Control": "no-cache",
                 "Pragma": "no-cache"
             }

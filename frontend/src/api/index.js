@@ -48,7 +48,8 @@ export const userAPI = {
   deleteUser: (userId) => api.delete(`/users/${userId}`),
   assignRoom: (userId, roomId) => api.post('/room-assignments/', { user_id: userId, room_id: roomId }),
   getRoomAssignments: () => api.get('/room-assignments/'),
-  deleteRoomAssignment: (assignmentId) => api.delete(`/room-assignments/${assignmentId}`)
+  deleteRoomAssignment: (assignmentId) => api.delete(`/room-assignments/${assignmentId}`),
+  importUserRoomAssignments: (assignmentData) => api.post('/admin/import-user-room-assignments', assignmentData)
 }
 
 export const roomAPI = {
@@ -62,13 +63,10 @@ export const roomAPI = {
 export const qualityIssueAPI = {
   getQualityIssues: (roomId) => api.get('/quality-issues/', { params: { room_id: roomId } }),
   createQualityIssue: (issueData) => api.post('/quality-issues/', issueData),
-  acceptQualityIssue: (issueId) => api.put(`/quality-issues/${issueId}/accept`)
+  acceptQualityIssue: (issueId) => api.put(`/quality-issues/${issueId}/accept`),
+  deleteQualityIssue: (issueId) => api.delete(`/quality-issues/${issueId}`)
 }
 
-export const communicationAPI = {
-  getCommunications: (roomId) => api.get('/communications/', { params: { room_id: roomId } }),
-  createCommunication: (commData) => api.post('/communications/', commData)
-}
 
 export const adminAPI = {
   getSummary: (buildingUnit) => api.get('/admin/summary', { params: { building_unit: buildingUnit } }),

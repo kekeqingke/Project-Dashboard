@@ -17,12 +17,15 @@ def get_users(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.User).offset(skip).limit(limit).all()
 
 def generate_initial_password():
-    """生成6位数字初始密码"""
-    return ''.join(random.choices(string.digits, k=6))
+    """生成8位随机初始密码"""
+    # 包含字母和数字，但避免容易混淆的字符
+    characters = string.ascii_letters + string.digits
+    characters = characters.replace('0', '').replace('O', '').replace('l', '').replace('1', '').replace('I', '')
+    return ''.join(random.choices(characters, k=8))
 
 def create_user(db: Session, user: schemas.UserCreate):
     # 生成初始密码（如果没有提供）
-    initial_password = user.password if hasattr(user, 'password') else generate_initial_password()
+    initial_password = user.password if user.password else generate_initial_password()
     hashed_password = auth.get_password_hash(initial_password)
     
     db_user = models.User(
@@ -76,7 +79,8 @@ def delete_user(db: Session, user_id: int):
 
 # Room operations
 def get_rooms(db: Session):
-    rooms = db.query(models.Room).all()
+    from sqlalchemy import cast, Integer
+    rooms = db.query(models.Room).order_by(models.Room.building_unit, cast(models.Room.room_number, Integer)).all()
     # 为每个房间添加用户分配信息和格式化户主信息
     for room in rooms:
         assignments = db.query(models.UserRoom).filter(models.UserRoom.room_id == room.id).all()
@@ -110,7 +114,8 @@ def get_rooms(db: Session):
     return rooms
 
 def get_user_rooms(db: Session, user_id: int):
-    return db.query(models.Room).join(models.UserRoom, models.Room.id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id).all()
+    from sqlalchemy import cast, Integer
+    return db.query(models.Room).join(models.UserRoom, models.Room.id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id).order_by(models.Room.building_unit, cast(models.Room.room_number, Integer)).all()
 
 def get_room_by_id(db: Session, room_id: int, user_id: Optional[int] = None):
     """获取单个房间信息，如果指定了user_id则检查权限"""
@@ -251,6 +256,31 @@ def get_quality_issues(db: Session, room_id: Optional[int] = None, user_id: Opti
         
     return issues
 
+def get_quality_issue_by_id(db: Session, issue_id: int):
+    """获取单个质量问题详情"""
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+    if not issue:
+        return None
+    
+    # 添加用户信息
+    if issue.user_id:
+        user = db.query(models.User).filter(models.User.id == issue.user_id).first()
+        if user:
+            issue.user_name = user.name
+            issue.user_role = user.role
+    
+    # 添加验收人信息
+    if issue.accepted_by:
+        acceptor = db.query(models.User).filter(models.User.id == issue.accepted_by).first()
+        if acceptor:
+            issue.acceptor_name = acceptor.name
+            issue.acceptor_role = acceptor.role
+    
+    # 注意：当前模型已简化，不再支持撤销和复验功能
+    # 如果需要这些功能，需要在模型中添加相应字段
+    
+    return issue
+
 def create_quality_issue(db: Session, issue: schemas.QualityIssueCreate, user_id: int):
     """创建质量问题并记录日志"""
     db_issue = models.QualityIssue(**issue.dict(), user_id=user_id)
@@ -268,6 +298,7 @@ def create_quality_issue(db: Session, issue: schemas.QualityIssueCreate, user_id
         operator_id=user_id,
         operator_name=user.name if user else "未知用户",
         operator_role=user.role if user else "unknown",
+        timestamp=datetime.utcnow(),  # 明确设置为UTC时间
         after_data=json.dumps({
             "status": db_issue.status,
             "description": db_issue.description,
@@ -324,6 +355,7 @@ def accept_quality_issue(db: Session, issue_id: int, user_id: int):
         operator_id=user_id,
         operator_name=user.name,
         operator_role=user.role,
+        timestamp=datetime.utcnow(),  # 明确设置为UTC时间
         before_data=before_data,
         after_data=after_data,
         remarks="质量问题验收通过"
@@ -382,6 +414,7 @@ def revoke_accept_quality_issue(db: Session, issue_id: int, user_id: int):
         operator_id=user_id,
         operator_name=user.name,
         operator_role=user.role,
+        timestamp=datetime.utcnow(),  # 明确设置为UTC时间
         before_data=before_data,
         after_data=after_data,
         remarks="验收人撤销验收(24小时内)"
@@ -449,6 +482,7 @@ def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.Quali
         operator_id=user_id,
         operator_name=user.name,
         operator_role=user.role,
+        timestamp=datetime.utcnow(),  # 明确设置为UTC时间
         before_data=before_data,
         after_data=after_data,
         remarks="修改质量问题信息"
@@ -465,6 +499,26 @@ def update_quality_issue(db: Session, issue_id: int, issue_update: schemas.Quali
     issue.is_verified = issue.status == "已验收"
     
     return issue
+
+def delete_quality_issue(db: Session, issue_id: int):
+    """删除质量问题 - 仅供管理员使用"""
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+    
+    if not issue:
+        return False
+    
+    # 删除相关的日志记录
+    db.query(models.QualityIssueLog).filter(models.QualityIssueLog.issue_id == issue_id).delete()
+    
+    # 删除质量问题
+    room_id = issue.room_id  # 保存room_id用于后续更新房间状态
+    db.delete(issue)
+    db.commit()
+    
+    # 删除后更新房间状态
+    update_room_status(db, room_id)
+    
+    return True
 
 
 
@@ -531,7 +585,9 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
     if building_unit:
         query = query.filter(models.Room.building_unit == building_unit)
     
-    rooms = query.all()
+    # 添加排序逻辑：先按楼栋单元，再按房间号（数值排序）
+    from sqlalchemy import cast, Integer
+    rooms = query.order_by(models.Room.building_unit, cast(models.Room.room_number, Integer)).all()
     
     # 统计各状态房间数量
     status_count = {}
@@ -610,10 +666,6 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'latest_issue_type': latest_pending_issue.issue_type if latest_pending_issue else "",
             'latest_issue_record_date': latest_pending_issue.record_date if latest_pending_issue else None,
             
-            # 沟通记录功能已删除，保留字段结构
-            'pending_communications_count': 0,
-            'latest_comm_content': "",
-            'latest_comm_time': None,
             'latest_feedback': ""
         }
         
@@ -632,7 +684,6 @@ def clear_room_content(db: Session, room_id: int):
     
     清空以下数据：
     - 质量问题记录(quality_issues)
-    - 沟通记录(communications)
     - 重置房间状态为初始值
     
     保留以下数据：
@@ -646,7 +697,7 @@ def clear_room_content(db: Session, room_id: int):
     # 删除房间的质量问题记录
     deleted_issues = db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room_id).delete()
     
-    # 沟通记录已删除，无需处理
+    # 沟通记录功能已移除
     deleted_communications = 0
     
     # 重置房间状态为初始值
@@ -683,7 +734,7 @@ def clear_all_rooms_content(db: Session):
         deleted_issues = db.query(models.QualityIssue).filter(models.QualityIssue.room_id == room.id).delete()
         total_deleted_issues += deleted_issues
         
-        # 沟通记录已删除，无需处理
+        # 沟通记录功能已移除
         deleted_communications = 0
         total_deleted_communications += deleted_communications
         
@@ -735,20 +786,14 @@ def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
             owner_name2 = row.get('owner_name2', '').strip() if row.get('owner_name2') else None
             owner_phone2 = row.get('owner_phone2', '').strip() if row.get('owner_phone2') else None
             
-            # 至少需要一个户主信息
-            if not owner_name1 and not owner_phone1:
-                errors.append(f"第{i}行：至少需要填写一个户主的姓名或手机号")
-                continue
+            # 允许清空户主信息（用于重置），但如果填写了信息则需要完整
+            # 注释掉强制验证，支持清空户主信息的需求
             
-            # 直接更新rooms表的户主字段
-            if owner_name1:
-                room.owner_name = owner_name1
-            if owner_phone1:
-                room.owner_phone = owner_phone1
-            if owner_name2:
-                room.second_owner_name = owner_name2
-            if owner_phone2:
-                room.second_owner_phone = owner_phone2
+            # 直接更新rooms表的户主字段（支持清空）
+            room.owner_name = owner_name1
+            room.owner_phone = owner_phone1
+            room.second_owner_name = owner_name2
+            room.second_owner_phone = owner_phone2
             
             db.commit()
             updated += 1
@@ -762,5 +807,133 @@ def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
         'total': total,
         'updated': updated,
         'created': 0,  # 不再创建新记录，只更新现有房间
+        'errors': errors
+    }
+
+def import_user_room_assignments(db: Session, assignment_data: List[dict]) -> dict:
+    """批量导入用户房间分配"""
+    total = len(assignment_data)
+    success_count = 0
+    failed_count = 0
+    errors = []
+    
+    # 角色映射
+    role_map = {
+        '客户大使': 'customer_ambassador',
+        '项目工程师': 'project_engineer', 
+        '维修工程师': 'maintenance_engineer',
+        'customer_ambassador': 'customer_ambassador',
+        'project_engineer': 'project_engineer',
+        'maintenance_engineer': 'maintenance_engineer'
+    }
+    
+    for i, item in enumerate(assignment_data, 1):
+        try:
+            # 验证必填字段
+            if not all([item.get('username'), item.get('name'), item.get('role'), 
+                       item.get('building_unit'), item.get('room_numbers')]):
+                errors.append(f"第{i}行：用户名、姓名、角色、楼栋单元和房间号列表不能为空")
+                failed_count += 1
+                continue
+            
+            # 转换角色
+            role = role_map.get(item['role'])
+            if not role:
+                errors.append(f"第{i}行：无效角色 '{item['role']}'，请使用：客户大使、项目工程师、维修工程师")
+                failed_count += 1
+                continue
+            
+            # 查找或创建用户
+            user = db.query(models.User).filter(
+                models.User.username == item['username']
+            ).first()
+            
+            if not user:
+                # 创建新用户
+                try:
+                    initial_password = generate_initial_password()
+                    user = models.User(
+                        username=item['username'],
+                        name=item['name'],
+                        role=role,
+                        password=auth.get_password_hash(initial_password),
+                        initial_password=initial_password,
+                        password_changed=False
+                    )
+                    db.add(user)
+                    db.flush()  # 获取用户ID但不提交事务
+                except Exception as e:
+                    errors.append(f"第{i}行：创建用户失败 - {str(e)}")
+                    failed_count += 1
+                    db.rollback()
+                    continue
+            else:
+                # 验证现有用户信息
+                if user.name != item['name']:
+                    errors.append(f"第{i}行：用户名 '{item['username']}' 已存在但姓名不匹配（现有：{user.name}，导入：{item['name']}）")
+                    failed_count += 1
+                    continue
+                
+                if user.role != role:
+                    errors.append(f"第{i}行：用户名 '{item['username']}' 已存在但角色不匹配（现有：{user.role}，导入：{role}）")
+                    failed_count += 1
+                    continue
+            
+            # 处理房间分配
+            room_assignment_count = 0
+            for room_number in item['room_numbers']:
+                if not room_number or not room_number.strip():
+                    continue
+                
+                # 查找房间
+                room = db.query(models.Room).filter(
+                    models.Room.building_unit == item['building_unit'],
+                    models.Room.room_number == room_number.strip()
+                ).first()
+                
+                if not room:
+                    errors.append(f"第{i}行：未找到房间 {item['building_unit']}-{room_number}")
+                    continue
+                
+                # 检查是否已分配
+                existing_assignment = db.query(models.UserRoom).filter(
+                    models.UserRoom.user_id == user.id,
+                    models.UserRoom.room_id == room.id
+                ).first()
+                
+                if existing_assignment:
+                    # 已分配，跳过
+                    continue
+                
+                # 创建新分配
+                assignment = models.UserRoom(
+                    user_id=user.id,
+                    room_id=room.id
+                )
+                db.add(assignment)
+                room_assignment_count += 1
+            
+            if room_assignment_count > 0:
+                db.commit()
+                success_count += 1
+            else:
+                # 用户存在但没有新的房间分配
+                if user.id:  # 如果用户已存在
+                    success_count += 1
+                else:
+                    db.rollback()
+                    errors.append(f"第{i}行：用户创建成功但没有有效的房间分配")
+                    failed_count += 1
+                
+        except Exception as e:
+            errors.append(f"第{i}行：处理失败 - {str(e)}")
+            failed_count += 1
+            db.rollback()
+    
+    return {
+        'success': failed_count == 0,
+        'total': total,
+        'success_count': success_count,
+        'failed_count': failed_count,
         'errors': errors
     }

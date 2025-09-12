@@ -119,6 +119,145 @@ def install_backend_deps():
         print(f"✗ 后端依赖安装失败: {e}")
         return False
 
+def reset_admin_password():
+    """重置管理员密码"""
+    backend_path = Path(BACKEND_DIR)
+    reset_script = backend_path / "reset_admin_password.py"
+    
+    if not reset_script.exists():
+        print("⚠️  管理员密码重置脚本不存在")
+        return None
+    
+    try:
+        print("🔐 重置管理员密码...")
+        # 自动选择生成随机密码（选项1）
+        result = subprocess.run([
+            sys.executable, 'reset_admin_password.py'
+        ], cwd=str(backend_path.absolute()), input='1\ny\n', 
+          text=True, capture_output=True)
+        
+        if result.returncode == 0:
+            print("✅ 管理员密码重置成功")
+            
+            # 从输出中提取新密码
+            lines = result.stdout.split('\n')
+            new_password = None
+            for line in lines:
+                if "🔑 自动生成的新密码：" in line:
+                    new_password = line.split("：")[-1].strip()
+                    break
+            
+            if new_password:
+                print("\n" + "="*50)
+                print("🔑 新的管理员登录信息")
+                print("="*50)
+                print(f"👤 用户名：admin")
+                print(f"🔑 新密码：{new_password}")
+                print("⚠️  请妥善保管新密码")
+                print("="*50 + "\n")
+                return new_password
+            else:
+                print("⚠️  无法获取新密码，请查看上方输出")
+                return "重置成功但无法获取密码"
+        else:
+            print(f"✗ 管理员密码重置失败: {result.stderr}")
+            return None
+    except Exception as e:
+        print(f"✗ 运行密码重置脚本时出错: {e}")
+        return None
+
+def check_security_config():
+    """检查和初始化安全配置"""
+    backend_path = Path(BACKEND_DIR)
+    env_file = backend_path / ".env"
+    init_db_file = backend_path / "init_db.py"
+    
+    print("🔐 检查安全配置...")
+    
+    if not init_db_file.exists():
+        print(f"✗ 初始化脚本不存在: {init_db_file}")
+        return False, None
+    
+    # 检查是否需要运行初始化
+    needs_init = False
+    if not env_file.exists():
+        print("⚠️  未找到 .env 配置文件")
+        needs_init = True
+    
+    # 检查数据库是否存在
+    db_file = backend_path / "zwy_project.db"
+    if not db_file.exists():
+        print("⚠️  数据库文件不存在")
+        needs_init = True
+    
+    admin_password = None
+    
+    if needs_init:
+        try:
+            print("🚀 正在运行数据库初始化...")
+            result = subprocess.run([
+                sys.executable, 'init_db.py'
+            ], cwd=str(backend_path.absolute()), capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                print("✅ 数据库初始化完成")
+                # 显示输出中的重要信息
+                if "临时密码" in result.stdout:
+                    print("\n" + "="*50)
+                    print("🔑 重要：管理员登录信息")
+                    print("="*50)
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if "用户名：" in line or "临时密码：" in line or "⚠️" in line:
+                            print(line)
+                            if "临时密码：" in line:
+                                admin_password = line.split("：")[-1].strip()
+                    print("="*50 + "\n")
+                return True, admin_password
+            else:
+                print(f"✗ 数据库初始化失败: {result.stderr}")
+                return False, None
+        except Exception as e:
+            print(f"✗ 运行初始化脚本时出错: {e}")
+            return False, None
+    else:
+        print("✓ 安全配置已存在")
+        
+        # 询问是否重置管理员密码
+        print("\n🔄 是否需要重置管理员密码？")
+        print("1. 是 - 生成新的随机密码")
+        print("2. 否 - 使用现有密码")
+        
+        try:
+            # 在自动化脚本中，默认选择重置密码以确保用户知道登录凭据
+            choice = input("\n请选择 (1/2，默认选择1): ").strip()
+            if choice == '' or choice == '1':
+                admin_password = reset_admin_password()
+                if admin_password:
+                    return True, admin_password
+            elif choice == '2':
+                print("✓ 保持现有密码不变")
+                # 尝试从.env文件读取密码
+                try:
+                    with open(env_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if line.startswith('ADMIN_PASSWORD='):
+                                admin_password = line.split('=', 1)[1].strip()
+                                print(f"📖 从.env文件读取到管理员密码：{admin_password}")
+                                break
+                except Exception as e:
+                    print(f"⚠️  无法读取.env文件中的密码: {e}")
+                return True, admin_password
+            else:
+                print("❌ 无效选择，保持现有密码")
+                return True, None
+        except KeyboardInterrupt:
+            print("\n❌ 用户取消操作")
+            return True, None
+        except Exception as e:
+            print(f"⚠️  输入处理出错: {e}")
+            return True, None
+
 def install_frontend_deps():
     """安装前端依赖"""
     frontend_path = Path(FRONTEND_DIR)
@@ -259,6 +398,12 @@ def main():
     if not install_backend_deps():
         sys.exit(1)
     
+    # 检查安全配置
+    config_ok, admin_password = check_security_config()
+    if not config_ok:
+        print("✗ 安全配置检查失败")
+        sys.exit(1)
+    
     if node_available and not install_frontend_deps():
         print("⚠ 前端依赖安装失败，仅启动后端服务")
         node_available = False
@@ -289,6 +434,12 @@ def main():
         if node_available and len(processes) > 1:
             print(f"🌐 前端界面: http://localhost:{FRONTEND_PORT}")
         print("📖 API文档: http://localhost:8000/docs")
+        print("\n👤 管理员账号: admin")
+        if admin_password:
+            print(f"🔑 管理员密码: {admin_password}")
+        else:
+            print("🔑 密码信息: 查看上方初始化输出或 backend/.env 文件")
+        print("\n⚠️  首次登录建议立即修改密码")
         print("\n按 Ctrl+C 停止所有服务")
         print("=" * 60)
         

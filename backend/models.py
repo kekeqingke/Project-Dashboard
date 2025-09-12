@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Date
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Date, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from datetime import datetime
 from database import Base
 
 class User(Base):
@@ -43,6 +44,11 @@ class Room(Base):
     # 关系
     user_assignments = relationship("UserRoom", back_populates="room")
     quality_issues = relationship("QualityIssue", back_populates="room")
+    
+    # 添加唯一性约束：确保楼栋单元+房间号的组合唯一
+    __table_args__ = (
+        UniqueConstraint('building_unit', 'room_number', name='_building_room_uc'),
+    )
 
 class UserRoom(Base):
     __tablename__ = "user_rooms"
@@ -86,7 +92,7 @@ class QualityIssueLog(Base):
     operator_id = Column(Integer, ForeignKey("users.id"))
     operator_name = Column(String(100))
     operator_role = Column(String(50))
-    timestamp = Column(DateTime, server_default=func.now())
+    timestamp = Column(DateTime, default=datetime.utcnow)
     before_data = Column(Text)  # JSON格式记录变更前数据
     after_data = Column(Text)   # JSON格式记录变更后数据
     remarks = Column(Text)      # 操作备注

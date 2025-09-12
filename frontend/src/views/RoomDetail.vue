@@ -45,6 +45,18 @@
               </el-tag>
             </template>
           </el-table-column>
+          <el-table-column v-if="isAdmin" label="操作" width="80">
+            <template #default="scope">
+              <el-button 
+                type="danger" 
+                size="small" 
+                @click="handleDeleteIssue(scope.row)"
+                :loading="scope.row.deleting"
+              >
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
 
@@ -91,7 +103,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { roomAPI, qualityIssueAPI } from '../api/index.js'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Plus } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -115,6 +127,10 @@ const issueForm = ref({
 const canAddIssue = computed(() => {
   const role = authStore.user?.role
   return ['project_engineer', 'maintenance_engineer', 'customer_ambassador'].includes(role)
+})
+
+const isAdmin = computed(() => {
+  return authStore.user?.role === 'admin'
 })
 
 const fetchRoomData = async () => {
@@ -172,6 +188,33 @@ const submitIssue = async () => {
     fetchRoomData()
   } catch (error) {
     ElMessage.error('添加质量问题失败')
+  }
+}
+
+const handleDeleteIssue = async (issue) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除这条质量问题吗？\n问题描述：${issue.description}`,
+      '确认删除',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    
+    // 设置删除中状态
+    issue.deleting = true
+    
+    await qualityIssueAPI.deleteQualityIssue(issue.id)
+    ElMessage.success('质量问题删除成功')
+    fetchRoomData() // 重新获取数据
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除质量问题失败')
+    }
+  } finally {
+    issue.deleting = false
   }
 }
 
@@ -245,7 +288,6 @@ watch(() => route.params.id, (newId, oldId) => {
     // 重置数据
     roomInfo.value = null
     qualityIssues.value = []
-    communications.value = []
     customerInfo.value = null
     // 重新获取数据
     fetchRoomData()

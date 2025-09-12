@@ -27,15 +27,12 @@
               <el-tag :type="getStatusType(room.status)">{{ room.status }}</el-tag>
             </div>
             
-            <div class="room-stats" :class="{ 'three-stats': room.reverification_count > 0 }">
+            <div class="room-stats">
               <div class="stat-item">
                 <el-statistic title="质量问题" :value="room.quality_issue_count || 0" />
               </div>
               <div class="stat-item">
                 <el-statistic title="待验收" :value="room.pending_verification_count || 0" />
-              </div>
-              <div class="stat-item" v-if="room.reverification_count > 0">
-                <el-statistic title="需复验" :value="room.reverification_count || 0" />
               </div>
             </div>
           </el-card>
@@ -114,10 +111,6 @@
               <div class="stat-card">
                 <el-statistic title="已验收" :value="roomStats.completed" />
                 <el-icon class="stat-icon completed"><CircleCheck /></el-icon>
-              </div>
-              <div v-if="roomStats.reverification > 0" class="stat-card">
-                <el-statistic title="需复验" :value="roomStats.reverification" />
-                <el-icon class="stat-icon pending"><RefreshLeft /></el-icon>
               </div>
               <div class="stat-card completion-rate">
                 <el-statistic title="验收完成率" :value="roomStats.completionRate" suffix="%" />
@@ -215,23 +208,7 @@
                     <strong>验收信息:</strong>
                     <span>{{ getAcceptanceInfo(issue) }}</span>
                   </div>
-                  <!-- 撤销信息 -->
-                  <div v-if="issue.status === '需复验'" class="issue-section">
-                    <strong>原验收:</strong>
-                    <span>{{ getOriginalAcceptanceInfo(issue) }}</span>
-                    <br>
-                    <strong>撤销信息:</strong>
-                    <span>{{ getRevokeInfo(issue) }}</span>
-                  </div>
-                  <!-- 已复验信息（完整历史） -->
-                  <div v-if="issue.status === '已复验'" class="issue-section">
-                    <strong>验收历史:</strong>
-                    <div class="verification-history">
-                      <div>原验收：{{ getOriginalAcceptanceInfo(issue) }}</div>
-                      <div>撤销：{{ getRevokeInfo(issue) }}</div>
-                      <div>复验：{{ getReverifyInfo(issue) }} ✅最终状态</div>
-                    </div>
-                  </div>
+                  <!-- 注意：已简化验收流程，只支持待验收和已验收两种状态 -->
                   <div v-if="issue.images" class="issue-images">
                     <strong>相关图片:</strong>
                     <div class="images-container">
@@ -248,16 +225,26 @@
                   </div>
                 </div>
                 <div class="issue-actions">
+                  <!-- 验收按钮 - 只有项目工程师可见 -->
+                  <el-button 
+                    v-if="issue.status === '待验收' && authStore.user?.role === 'project_engineer'" 
+                    type="success" 
+                    size="small"
+                    @click="acceptIssue(issue)"
+                  >
+                    <el-icon><Check /></el-icon>
+                    验收
+                  </el-button>
                   <!-- 查看日志按钮 -->
                   <el-button 
                     type="info" 
                     size="small"
                     @click="viewIssueLogs(issue.id)"
+                    :title="`Debug: issue.id = ${issue.id}, type = ${typeof issue.id}`"
                   >
                     <el-icon><Document /></el-icon>
                     查看日志
                   </el-button>
-                  <!-- 维修工程师不具备验收权限，只能查看问题状态和日志 -->
                 </div>
               </div>
             </div>
@@ -354,10 +341,17 @@
     <!-- 操作日志查看对话框 -->
     <el-dialog
       v-model="logsDialogVisible"
-      title="操作日志"
       width="800px"
       :close-on-click-modal="false"
     >
+      <template #header>
+        <div class="logs-dialog-header">
+          <span class="logs-title">操作日志</span>
+          <span v-if="currentIssueInfo" class="logs-record-time">
+            问题录入: {{ formatDateOnly(currentIssueInfo.record_date || currentIssueInfo.created_at) }}
+          </span>
+        </div>
+      </template>
       <div v-if="logsLoading" class="logs-loading">
         <el-icon class="is-loading"><Loading /></el-icon>
         <span>加载日志中...</span>
@@ -384,7 +378,7 @@
             <div class="log-content">
               <div class="log-header">
                 <div class="log-action">{{ getLogActionText(log.action) }}</div>
-                <div class="log-time">{{ formatDateTime(log.timestamp) }}</div>
+                <div class="log-time">操作时间: {{ formatDateTime(log.timestamp) }}</div>
               </div>
               
               <div class="log-operator">
@@ -393,19 +387,9 @@
                 <el-tag size="small" type="info">{{ log.operator_role }}</el-tag>
               </div>
               
-              <div v-if="log.remarks" class="log-remarks">
-                <strong>备注:</strong> {{ log.remarks }}
-              </div>
-              
-              <div v-if="log.before_data || log.after_data" class="log-data">
-                <div v-if="log.before_data" class="data-before">
-                  <strong>变更前:</strong>
-                  <pre>{{ formatLogData(log.before_data) }}</pre>
-                </div>
-                <div v-if="log.after_data" class="data-after">
-                  <strong>变更后:</strong>
-                  <pre>{{ formatLogData(log.after_data) }}</pre>
-                </div>
+              <div class="log-description">
+                <el-icon><component :is="getLogDescriptionIcon(log.action)" /></el-icon>
+                <span>{{ getLogDescription(log.action) }}</span>
               </div>
             </div>
           </div>
@@ -443,6 +427,7 @@ const logsDialogVisible = ref(false)
 const logsLoading = ref(false)
 const issueLogs = ref([])
 const currentIssueId = ref(null)
+const currentIssueInfo = ref(null)
 
 // 表单引用
 const uploadRef = ref(null)
@@ -488,13 +473,10 @@ const fetchRooms = async () => {
         const issuesResponse = await api.get(`/quality-issues/?room_id=${room.id}`)
         const issues = issuesResponse.data
         const pendingVerification = issues.filter(issue => issue.status === '待验收')
-        const reverificationIssues = issues.filter(issue => issue.status === '需复验')
-        
         return {
           ...room,
           quality_issue_count: issues.length,
-          pending_verification_count: pendingVerification.length,
-          reverification_count: reverificationIssues.length
+          pending_verification_count: pendingVerification.length
         }
       })
     )
@@ -528,6 +510,9 @@ const fetchRoomDetails = async (roomId) => {
     
     // 获取质量问题
     const issuesResponse = await api.get(`/quality-issues/?room_id=${roomId}`)
+    console.log('Quality issues response:', issuesResponse.data)
+    console.log('First issue structure:', issuesResponse.data[0])
+    
     // 按照录入时间和创建时间降序排序，新问题在前
     qualityIssues.value = issuesResponse.data.sort((a, b) => {
       const dateA = new Date(a.record_date || a.created_at)
@@ -535,15 +520,23 @@ const fetchRoomDetails = async (roomId) => {
       return dateB - dateA
     })
     
+    // 调试每个质量问题的 ID
+    qualityIssues.value.forEach((issue, index) => {
+      console.log(`Issue ${index}:`, {
+        id: issue.id,
+        id_type: typeof issue.id,
+        id_string: String(issue.id),
+        description: issue.description?.substring(0, 50) + '...'
+      })
+    })
+    
     // 更新统计数据
     const pendingVerification = qualityIssues.value.filter(issue => issue.status === '待验收')
-    const reverificationIssues = qualityIssues.value.filter(issue => issue.status === '需复验')
     
     currentRoom.value = {
       ...currentRoom.value,
       quality_issue_count: qualityIssues.value.length,
-      pending_verification_count: pendingVerification.length,
-      reverification_count: reverificationIssues.length
+      pending_verification_count: pendingVerification.length
     }
     
   } catch (error) {
@@ -566,9 +559,7 @@ const getStatusType = (status) => {
 const getIssueStatusType = (status) => {
   const typeMap = {
     '待验收': 'warning',
-    '已验收': 'success', 
-    '需复验': 'danger',
-    '已复验': 'info'  // 已复验使用信息色，表示最终完成状态
+    '已验收': 'success'
   }
   return typeMap[status] || 'warning'
 }
@@ -620,21 +611,20 @@ const roomStats = computed(() => {
   return {
     total: issues.length,
     pending: issues.filter(i => i.status === '待验收').length,
-    completed: issues.filter(i => i.status === '已验收' || i.status === '已复验').length,
-    reverification: issues.filter(i => i.status === '需复验').length,
+    completed: issues.filter(i => i.status === '已验收').length,
     completionRate: issues.length > 0 ? 
-      Math.round((issues.filter(i => i.status === '已验收' || i.status === '已复验').length / issues.length) * 100) : 0,
+      Math.round((issues.filter(i => i.status === '已验收').length / issues.length) * 100) : 0,
     
     // 按类型分组统计
     qualityDefects: {
       total: issues.filter(i => i.issue_type === '质量瑕疵').length,
       pending: issues.filter(i => i.issue_type === '质量瑕疵' && i.status === '待验收').length,
-      completed: issues.filter(i => i.issue_type === '质量瑕疵' && (i.status === '已验收' || i.status === '已复验')).length
+      completed: issues.filter(i => i.issue_type === '质量瑕疵' && i.status === '已验收').length
     },
     materialPrep: {
       total: issues.filter(i => i.issue_type === '材料备货').length,
       pending: issues.filter(i => i.issue_type === '材料备货' && i.status === '待验收').length,
-      completed: issues.filter(i => i.issue_type === '材料备货' && (i.status === '已验收' || i.status === '已复验')).length
+      completed: issues.filter(i => i.issue_type === '材料备货' && i.status === '已验收').length
     }
   }
 })
@@ -676,14 +666,11 @@ const saveQualityIssue = async () => {
   }
   
   try {
-    const recordDate = qualityIssueForm.value.record_date ? 
-      new Date(qualityIssueForm.value.record_date + 'T00:00:00').toISOString() : null
-    
     const data = {
       room_id: selectedRoomId.value,
       description: qualityIssueForm.value.description,
       issue_type: qualityIssueForm.value.issue_type,
-      record_date: recordDate,
+      record_date: qualityIssueForm.value.record_date,
       images: JSON.stringify(qualityIssueForm.value.uploadedImages)
     }
     
@@ -704,39 +691,42 @@ const saveQualityIssue = async () => {
 
 // 获取验收信息
 const getAcceptanceInfo = (issue) => {
-  if (issue.reverified_by && issue.reverifier_name) {
-    return `${issue.reverifier_name}(${getRoleText(issue.reverifier_role)}) | 复验：${formatDateOnly(issue.reverified_at)}`
-  } else if (issue.accepted_by && issue.acceptor_name) {
-    return `${issue.acceptor_name}(${getRoleText(issue.acceptor_role)}) | 验收：${formatDateOnly(issue.accepted_at)}`
-  }
-  return '验收信息缺失'
-}
-
-// 获取原验收信息
-const getOriginalAcceptanceInfo = (issue) => {
   if (issue.accepted_by && issue.acceptor_name) {
     return `${issue.acceptor_name}(${getRoleText(issue.acceptor_role)}) | 验收：${formatDateOnly(issue.accepted_at)}`
   }
   return '验收信息缺失'
 }
 
-// 获取撤销信息
-const getRevokeInfo = (issue) => {
-  if (issue.revoked_by && issue.revoker_name) {
-    return `${issue.revoker_name}(${getRoleText(issue.revoker_role)}) | 撤销：${formatDateOnly(issue.revoked_at)}`
-  }
-  return '撤销信息缺失'
-}
+// 注意：撤销和复验功能已移除，系统简化为待验收和已验收两种状态
 
-// 获取复验信息
-const getReverifyInfo = (issue) => {
-  if (issue.reverified_by && issue.reverifier_name) {
-    return `${issue.reverifier_name}(${getRoleText(issue.reverifier_role)}) | 复验：${formatDateOnly(issue.reverified_at)}`
+// 验收质量问题 - 只有项目工程师有权限
+const acceptIssue = async (issue) => {
+  try {
+    await ElMessageBox.confirm(
+      '确认验收此质量问题吗？验收后将标记为已验收状态。',
+      '验收确认',
+      {
+        confirmButtonText: '确认验收',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    await api.put(`/quality-issues/${issue.id}/accept`)
+    ElMessage.success('质量问题验收成功')
+    
+    // 刷新数据
+    await fetchRoomDetails(selectedRoomId.value)
+    await fetchRooms()
+    
+  } catch (error) {
+    if (error === 'cancel') {
+      return
+    }
+    console.error('验收失败:', error)
+    ElMessage.error('验收失败，请重试')
   }
-  return '复验信息缺失'
 }
-
-// 验收相关功能已移除 - 维修工程师无验收权限
 
 // 图片上传相关
 const beforeImageUpload = (file) => {
@@ -785,13 +775,32 @@ const removeImage = (index) => {
 
 // 日志查看相关方法
 const viewIssueLogs = async (issueId) => {
+  console.log('=== viewIssueLogs Debug Start ===')
+  console.log('Raw issueId:', issueId)
+  console.log('Type of issueId:', typeof issueId)
+  console.log('String representation:', String(issueId))
+  console.log('JSON stringified:', JSON.stringify(issueId))
+  
   currentIssueId.value = issueId
   logsDialogVisible.value = true
   logsLoading.value = true
   
   try {
-    const response = await api.get(`/quality-issues/${issueId}/logs`)
-    issueLogs.value = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    // 确保 issueId 是纯数字
+    const cleanIssueId = parseInt(String(issueId).split(':')[0])
+    console.log('Cleaned issueId:', cleanIssueId)
+    
+    const logsUrl = `/quality-issues/${cleanIssueId}/logs`
+    console.log('Final requesting URL:', logsUrl)
+    console.log('=== viewIssueLogs Debug End ===')
+    
+    const [issueResponse, logsResponse] = await Promise.all([
+      api.get(`/quality-issues/${cleanIssueId}`),
+      api.get(logsUrl)
+    ])
+    
+    currentIssueInfo.value = issueResponse.data
+    issueLogs.value = logsResponse.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
   } catch (error) {
     console.error('获取操作日志失败:', error)
     ElMessage.error('获取操作日志失败')
@@ -810,6 +819,30 @@ const getLogActionText = (action) => {
     'REVERIFY': '复验通过'
   }
   return actionMap[action] || action
+}
+
+// 获取操作描述
+const getLogDescription = (action) => {
+  const descriptionMap = {
+    'CREATE': '创建了新的质量问题',
+    'UPDATE': '更新了问题描述和相关图片',
+    'ACCEPT': '质量问题验收通过，问题状态更新为"已验收"',
+    'REVOKE_ACCEPT': '撤销了验收状态',
+    'REVERIFY': '复验确认问题已解决'
+  }
+  return descriptionMap[action] || '执行了操作'
+}
+
+// 获取操作描述图标
+const getLogDescriptionIcon = (action) => {
+  const iconMap = {
+    'CREATE': Edit,
+    'UPDATE': Edit,
+    'ACCEPT': Check,
+    'REVOKE_ACCEPT': RefreshLeft,
+    'REVERIFY': Check
+  }
+  return iconMap[action] || Document
 }
 
 const getLogIcon = (action) => {
@@ -867,6 +900,22 @@ const formatDateTime = (datetime) => {
     second: '2-digit',
     timeZone: 'Asia/Shanghai'
   })
+}
+
+// 统一的北京时间格式化函数，包含时区标注
+const formatDateTimeWithTimezone = (datetime) => {
+  if (!datetime) return ''
+  const date = new Date(datetime)
+  const formatted = date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Shanghai'
+  })
+  return `${formatted} (北京时间)`
 }
 </script>
 
@@ -1384,6 +1433,29 @@ const formatDateTime = (datetime) => {
 }
 
 /* 日志查看对话框样式 */
+.logs-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.logs-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.logs-record-time {
+  font-size: 14px;
+  color: #67c23a;
+  font-weight: 500;
+  background-color: #f0f9ff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid #d4edda;
+}
+
 .logs-loading, .logs-empty {
   display: flex;
   flex-direction: column;
@@ -1515,10 +1587,17 @@ const formatDateTime = (datetime) => {
   color: #606266;
 }
 
-.log-remarks {
+.log-description {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 8px 0;
-  font-size: 13px;
-  color: #606266;
+  font-size: 14px;
+  color: #303133;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  border-radius: 6px;
+  border-left: 3px solid #409eff;
 }
 
 .log-data {

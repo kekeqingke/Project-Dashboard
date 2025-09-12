@@ -9,6 +9,7 @@ import UserManagement from '../views/UserManagement.vue'
 import AdminSummary from '../views/AdminSummary.vue'
 import AmbassadorDashboard from '../views/AmbassadorDashboard.vue'
 import EngineerDashboard from '../views/EngineerDashboard.vue'
+import ChangePassword from '../views/ChangePassword.vue'
 
 console.log('✅ Router loading...')
 
@@ -57,6 +58,11 @@ const routes = [
         path: '/engineer',
         name: 'EngineerDashboard',
         component: EngineerDashboard
+      },
+      {
+        path: '/profile/change-password',
+        name: 'ChangePassword',
+        component: ChangePassword
       }
     ]
   },

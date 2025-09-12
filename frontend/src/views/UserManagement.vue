@@ -2,9 +2,14 @@
   <div class="user-management">
     <div class="header">
       <h3>用户管理</h3>
-      <el-button type="primary" @click="showCreateDialog = true">
-        创建用户
-      </el-button>
+      <div class="header-buttons">
+        <el-button type="warning" @click="showImportDialog">
+          导入用户房间分配
+        </el-button>
+        <el-button type="primary" @click="showCreateDialog = true">
+          创建用户
+        </el-button>
+      </div>
     </div>
 
     <el-table :data="users" v-loading="loading">
@@ -163,6 +168,73 @@
         <el-button type="primary" @click="showAssignDialog(selectedUser)">继续分配</el-button>
       </template>
     </el-dialog>
+
+    <!-- Excel导入对话框 -->
+    <el-dialog
+      v-model="importDialogVisible"
+      title="导入用户房间分配"
+      width="700px"
+      :close-on-click-modal="false"
+    >
+      <div class="import-content">
+        <div class="import-instructions">
+          <h4>导入说明：</h4>
+          <ul>
+            <li>Excel格式：用户名 | 姓名 | 角色 | 楼栋单元 | 房间号列表</li>
+            <li>角色可选值：客户大使、项目工程师、维修工程师</li>
+            <li>楼栋单元格式：3单元、4单元</li>
+            <li>房间号列表用逗号分隔，3-9楼用3位数（如：301,302），10楼及以上用4位数（如：1201,1202）</li>
+            <li>系统会自动为3位数房间号补充前导0进行匹配</li>
+          </ul>
+        </div>
+        
+        <el-upload
+          ref="importUploadRef"
+          :auto-upload="false"
+          :show-file-list="true"
+          :limit="1"
+          accept=".xlsx,.xls"
+          @change="handleImportFileChange"
+          @remove="handleImportFileRemove"
+        >
+          <el-button type="primary">选择Excel文件</el-button>
+          <template #tip>
+            <div class="el-upload__tip">
+              只能上传 .xlsx 或 .xls 文件，且不超过 10MB
+            </div>
+          </template>
+        </el-upload>
+        
+        <!-- 预览数据 -->
+        <div v-if="importPreviewData.length > 0" class="preview-section">
+          <h4>数据预览（前5行）：</h4>
+          <el-table :data="importPreviewData.slice(0, 5)" border max-height="300">
+            <el-table-column prop="username" label="用户名" width="100" />
+            <el-table-column prop="name" label="姓名" width="100" />
+            <el-table-column prop="role" label="角色" width="120" />
+            <el-table-column prop="building_unit" label="楼栋单元" width="100" />
+            <el-table-column prop="room_numbers" label="房间号列表" min-width="200">
+              <template #default="scope">
+                <span>{{ scope.row.room_numbers.join(', ') }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <p style="margin-top: 10px;">共 {{ importPreviewData.length }} 行数据，总计 {{ getTotalRoomCount() }} 个房间分配</p>
+        </div>
+      </div>
+      
+      <template #footer>
+        <el-button @click="cancelImport">取消</el-button>
+        <el-button 
+          type="primary" 
+          @click="executeImport" 
+          :loading="importLoading"
+          :disabled="importPreviewData.length === 0"
+        >
+          确认导入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -170,6 +242,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { userAPI, roomAPI } from '../api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 const loading = ref(false)
 const users = ref([])
@@ -179,6 +252,13 @@ const assignments = ref([])
 const showCreateDialog = ref(false)
 const showAssignRoomDialog = ref(false)
 const showUserRoomsDialog = ref(false)
+
+// Excel导入相关
+const importDialogVisible = ref(false)
+const importLoading = ref(false)
+const importUploadRef = ref()
+const importPreviewData = ref([])
+const selectedImportFile = ref(null)
 
 const selectedUser = ref(null)
 const selectedRooms = ref([])
@@ -424,6 +504,140 @@ const formatRoomNumber = (roomNumber) => {
   return roomStr
 }
 
+// Excel导入相关方法
+const showImportDialog = () => {
+  importDialogVisible.value = true
+  importPreviewData.value = []
+  selectedImportFile.value = null
+}
+
+const handleImportFileChange = (file) => {
+  selectedImportFile.value = file
+  if (file.raw) {
+    readImportExcelFile(file.raw)
+  }
+}
+
+const handleImportFileRemove = () => {
+  importPreviewData.value = []
+  selectedImportFile.value = null
+}
+
+const readImportExcelFile = (file) => {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+      
+      // 跳过前15行（说明和表头），从第16行开始读取数据
+      const processedData = []
+      for (let i = 15; i < jsonData.length; i++) {
+        const row = jsonData[i]
+        if (row.length >= 5 && row[0] && row[1] && row[2] && row[3] && row[4]) {
+          // 解析房间号列表，自动补充前导0
+          const roomNumbersStr = String(row[4] || '')
+          const roomNumbers = roomNumbersStr.split(',').map(num => {
+            const trimmed = num.trim()
+            // 如果是3位数字，补充前导0；4位数保持原样
+            if (/^\d{3}$/.test(trimmed)) {
+              return '0' + trimmed
+            }
+            return trimmed
+          }).filter(num => num) // 过滤空值
+          
+          // 角色转换
+          const roleMap = {
+            '客户大使': 'customer_ambassador',
+            '项目工程师': 'project_engineer', 
+            '维修工程师': 'maintenance_engineer'
+          }
+          const role = roleMap[String(row[2] || '').trim()] || String(row[2] || '').trim()
+          
+          processedData.push({
+            username: String(row[0] || '').trim(),
+            name: String(row[1] || '').trim(),
+            role: role,
+            building_unit: String(row[3] || '').trim(),
+            room_numbers: roomNumbers
+          })
+        }
+      }
+      
+      importPreviewData.value = processedData
+      ElMessage.success(`成功读取 ${processedData.length} 条数据`)
+    } catch (error) {
+      console.error('Excel文件读取失败:', error)
+      ElMessage.error('Excel文件读取失败，请检查文件格式')
+    }
+  }
+  reader.readAsArrayBuffer(file)
+}
+
+const getTotalRoomCount = () => {
+  return importPreviewData.value.reduce((total, item) => total + item.room_numbers.length, 0)
+}
+
+const executeImport = async () => {
+  if (importPreviewData.value.length === 0) {
+    ElMessage.error('没有可导入的数据')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(
+      `确认导入 ${importPreviewData.value.length} 条用户房间分配数据，总计 ${getTotalRoomCount()} 个房间分配吗？`,
+      '确认导入',
+      {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    importLoading.value = true
+    
+    console.log('准备导入数据:', importPreviewData.value)
+    const response = await userAPI.importUserRoomAssignments(importPreviewData.value)
+    console.log('收到响应:', response)
+    
+    if (response.data.success) {
+      ElMessage.success(
+        `导入完成！总计：${response.data.total}，成功：${response.data.success_count}，失败：${response.data.failed_count}`
+      )
+      importDialogVisible.value = false
+      // 刷新数据
+      await fetchData()
+    } else {
+      // 显示错误信息
+      const errors = response.data.errors.join('\n')
+      ElMessageBox.alert(
+        `导入完成，但存在错误：\n总计：${response.data.total}，成功：${response.data.success_count}，失败：${response.data.failed_count}\n\n错误详情：\n${errors}`,
+        '导入结果',
+        { type: 'warning' }
+      )
+      // 仍然刷新数据
+      await fetchData()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('导入失败：' + (error.message || '未知错误'))
+    }
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const cancelImport = () => {
+  importDialogVisible.value = false
+  importPreviewData.value = []
+  selectedImportFile.value = null
+  importUploadRef.value?.clearFiles()
+}
+
 onMounted(() => {
   console.log('userAPI methods:', Object.keys(userAPI))
   fetchData()
@@ -440,6 +654,11 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 10px;
 }
 
 .assign-header {
@@ -474,5 +693,45 @@ onMounted(() => {
 
 .delete-button {
   margin-left: 20px !important;
+}
+
+/* Excel导入相关样式 */
+.import-content {
+  margin: 20px 0;
+}
+
+.import-instructions {
+  background-color: #f5f7fa;
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.import-instructions h4 {
+  margin: 0 0 10px 0;
+  color: #303133;
+}
+
+.import-instructions ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #606266;
+}
+
+.import-instructions li {
+  margin-bottom: 5px;
+}
+
+.preview-section {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background-color: #fafafa;
+}
+
+.preview-section h4 {
+  margin: 0 0 15px 0;
+  color: #303133;
 }
 </style>

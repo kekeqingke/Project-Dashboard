@@ -100,14 +100,24 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# 环境变量
+# 环境变量和安全配置
 .env
+.env.local
+.env.production
+.env.development
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# 安全相关文件
+*.key
+*.pem
+*.crt
+*.p12
+secrets.*
 
 # Spyder项目设置
 .spyderproject

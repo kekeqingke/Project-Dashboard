@@ -58,15 +58,14 @@ def register_chinese_fonts():
     
     return font_registered
 
-def create_room_communication_pdf(
+def create_room_report_pdf(
     room_info: dict,
     customer_info: Optional[dict],
-    communications: List[dict],
     quality_issues: List[dict],
     assigned_users: dict,
     latest_customer_description: str = ""
 ) -> bytes:
-    """生成房间沟通记录PDF"""
+    """生成房间报告PDF"""
     
     # 尝试注册中文字体
     font_registered = register_chinese_fonts()
@@ -191,12 +190,8 @@ def create_room_communication_pdf(
     story.append(Paragraph("客户核心诉求", content_style))
     story.append(Spacer(1, 10))
     
-    feedback_content = []
-    for comm in communications:
-        if comm.get('feedback'):
-            feedback_content.append(comm['feedback'])
-    
-    feedback_text = '；'.join(feedback_content) if feedback_content else '无'
+    # 沟通记录功能已移除
+    feedback_text = '无'
     feedback_data = [['客户核心诉求', feedback_text, '', '']]
     
     feedback_table = Table(feedback_data, colWidths=[3*cm, 13.5*cm])
@@ -305,7 +300,7 @@ def create_room_communication_pdf(
             try:
                 # 重新生成，使用简化的内容和Helvetica字体
                 return create_fallback_pdf(
-                    room_info, customer_info, communications, 
+                    room_info, customer_info, 
                     quality_issues, assigned_users, latest_customer_description
                 )
             except Exception as fallback_e:
@@ -317,7 +312,6 @@ def create_room_communication_pdf(
 def create_fallback_pdf(
     room_info: dict,
     customer_info: Optional[dict],
-    communications: List[dict],
     quality_issues: List[dict],
     assigned_users: dict,
     latest_customer_description: str = ""
@@ -368,13 +362,9 @@ def create_fallback_pdf(
         story.append(Paragraph(f"Phone: {customer_info.get('phone', 'N/A')}", normal_style))
         story.append(Spacer(1, 10))
     
-    # 沟通记录
-    if communications:
-        story.append(Paragraph("Communications:", normal_style))
-        for i, comm in enumerate(communications[:5]):  # 限制条数
-            content = comm.get('content', 'No content')[:100]  # 限制长度
-            story.append(Paragraph(f"{i+1}. {content}", normal_style))
-        story.append(Spacer(1, 10))
+    # 沟通记录功能已移除
+    story.append(Paragraph("Communication feature has been removed", normal_style))
+    story.append(Spacer(1, 10))
     
     # 质量问题
     if quality_issues:

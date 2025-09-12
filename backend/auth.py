@@ -7,10 +7,15 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 import models
 from database import get_db
+import os
+from dotenv import load_dotenv
 
-SECRET_KEY = "zwy-project-secret-key-change-in-production"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30天
+# 加载环境变量
+load_dotenv()
+
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "zwy-project-secret-key-change-in-production")
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", str(30 * 24 * 60)))  # 默认30天
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

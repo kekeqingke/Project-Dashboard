@@ -44,6 +44,19 @@
             <el-icon><DataAnalysis /></el-icon>
             <span>数据汇总</span>
           </el-menu-item>
+          
+          <!-- 个人中心菜单 - 所有用户都可见 -->
+          <el-divider style="margin: 10px 0;" />
+          <el-sub-menu index="profile">
+            <template #title>
+              <el-icon><Avatar /></el-icon>
+              <span>个人中心</span>
+            </template>
+            <el-menu-item index="/profile/change-password">
+              <el-icon><Lock /></el-icon>
+              <span>修改密码</span>
+            </el-menu-item>
+          </el-sub-menu>
         </el-menu>
       </el-aside>
       
@@ -51,6 +64,13 @@
         <router-view />
       </el-main>
     </el-container>
+    
+    <!-- 首次登录强制修改密码弹窗 -->
+    <FirstLoginModal
+      v-model="showFirstLoginModal"
+      :current-password="authStore.loginPassword"
+      @success="handleFirstLoginSuccess"
+    />
   </el-container>
 </template>
 
@@ -58,16 +78,24 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { House, User, DataAnalysis } from '@element-plus/icons-vue'
+import { House, User, DataAnalysis, Avatar, Lock } from '@element-plus/icons-vue'
+import FirstLoginModal from '../components/FirstLoginModal.vue'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
 const activeMenu = computed(() => route.path)
+const showFirstLoginModal = ref(false)
 
 onMounted(() => {
   authStore.initializeAuth()
+  
+  // 检查是否首次登录
+  if (authStore.firstLogin) {
+    showFirstLoginModal.value = true
+  }
+  
   if (route.path === '/dashboard') {
     // 根据用户角色跳转到不同的界面
     if (authStore.isCustomerAmbassador) {
@@ -97,6 +125,11 @@ const handleMenuSelect = (index) => {
 const logout = () => {
   authStore.logout()
   router.push('/login')
+}
+
+const handleFirstLoginSuccess = () => {
+  authStore.clearFirstLoginState()
+  showFirstLoginModal.value = false
 }
 </script>
 

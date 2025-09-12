@@ -4,7 +4,9 @@ import axios from 'axios'
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
-    token: localStorage.getItem('token') || null
+    token: localStorage.getItem('token') || null,
+    firstLogin: false,
+    loginPassword: null // 临时存储登录密码用于首次修改
   }),
   
   getters: {
@@ -22,15 +24,17 @@ export const useAuthStore = defineStore('auth', {
         formData.append('password', password)
         
         const response = await axios.post('/api/token', formData)
-        const { access_token, user } = response.data
+        const { access_token, user, first_login } = response.data
         
         this.token = access_token
         this.user = user
+        this.firstLogin = first_login || false
+        this.loginPassword = password // 临时存储用于首次修改密码
         
         localStorage.setItem('token', access_token)
         axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
         
-        return { success: true }
+        return { success: true, firstLogin: this.firstLogin }
       } catch (error) {
         return { 
           success: false, 
@@ -42,8 +46,15 @@ export const useAuthStore = defineStore('auth', {
     logout() {
       this.user = null
       this.token = null
+      this.firstLogin = false
+      this.loginPassword = null
       localStorage.removeItem('token')
       delete axios.defaults.headers.common['Authorization']
+    },
+    
+    clearFirstLoginState() {
+      this.firstLogin = false
+      this.loginPassword = null
     },
     
     async getCurrentUser() {

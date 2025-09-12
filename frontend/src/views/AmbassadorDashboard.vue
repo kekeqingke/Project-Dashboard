@@ -357,10 +357,17 @@
     <!-- 操作日志查看对话框 -->
     <el-dialog
       v-model="logsDialogVisible"
-      title="操作日志"
       width="800px"
       :close-on-click-modal="false"
     >
+      <template #header>
+        <div class="logs-dialog-header">
+          <span class="logs-title">操作日志</span>
+          <span v-if="currentIssueInfo" class="logs-record-time">
+            问题录入: {{ formatDateOnly(currentIssueInfo.record_date || currentIssueInfo.created_at) }}
+          </span>
+        </div>
+      </template>
       <div v-if="logsLoading" class="logs-loading">
         <el-icon class="is-loading"><Loading /></el-icon>
         <span>加载日志中...</span>
@@ -387,7 +394,7 @@
             <div class="log-content">
               <div class="log-header">
                 <div class="log-action">{{ getLogActionText(log.action) }}</div>
-                <div class="log-time">{{ formatDateTime(log.timestamp) }}</div>
+                <div class="log-time">操作时间: {{ formatDateTime(log.timestamp) }}</div>
               </div>
               
               <div class="log-operator">
@@ -396,19 +403,9 @@
                 <el-tag size="small" type="info">{{ log.operator_role }}</el-tag>
               </div>
               
-              <div v-if="log.remarks" class="log-remarks">
-                <strong>备注:</strong> {{ log.remarks }}
-              </div>
-              
-              <div v-if="log.before_data || log.after_data" class="log-data">
-                <div v-if="log.before_data" class="data-before">
-                  <strong>变更前:</strong>
-                  <pre>{{ formatLogData(log.before_data) }}</pre>
-                </div>
-                <div v-if="log.after_data" class="data-after">
-                  <strong>变更后:</strong>
-                  <pre>{{ formatLogData(log.after_data) }}</pre>
-                </div>
+              <div class="log-description">
+                <el-icon><component :is="getLogDescriptionIcon(log.action)" /></el-icon>
+                <span>{{ getLogDescription(log.action) }}</span>
               </div>
             </div>
           </div>
@@ -444,6 +441,7 @@ const logsDialogVisible = ref(false)
 const logsLoading = ref(false)
 const issueLogs = ref([])
 const currentIssueId = ref(null)
+const currentIssueInfo = ref(null)
 
 // 表单引用
 const qualityIssueFormRef = ref(null)
@@ -671,14 +669,11 @@ const saveQualityIssue = async () => {
   }
   
   try {
-    const recordDate = qualityIssueForm.value.record_date ? 
-      new Date(qualityIssueForm.value.record_date + 'T00:00:00').toISOString() : null
-    
     const data = {
       room_id: selectedRoomId.value,
       description: qualityIssueForm.value.description,
       issue_type: qualityIssueForm.value.issue_type,
-      record_date: recordDate,
+      record_date: qualityIssueForm.value.record_date,
       images: JSON.stringify(qualityIssueForm.value.uploadedImages)
     }
     
@@ -823,8 +818,18 @@ const viewIssueLogs = async (issueId) => {
   logsLoading.value = true
   
   try {
-    const response = await api.get(`/quality-issues/${issueId}/logs`)
-    issueLogs.value = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    // 同时获取质量问题信息和操作日志  
+    console.log('Ambassador - Issue ID:', issueId, 'Type:', typeof issueId) // Debug log
+    const logsUrl = `/quality-issues/${issueId}/logs`
+    console.log('Ambassador - Requesting logs from:', logsUrl) // Debug log
+    
+    const [issueResponse, logsResponse] = await Promise.all([
+      api.get(`/quality-issues/${issueId}`),
+      api.get(logsUrl)
+    ])
+    
+    currentIssueInfo.value = issueResponse.data
+    issueLogs.value = logsResponse.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
   } catch (error) {
     console.error('获取操作日志失败:', error)
     ElMessage.error('获取操作日志失败')
@@ -843,6 +848,30 @@ const getLogActionText = (action) => {
     'REVERIFY': '复验通过'
   }
   return actionMap[action] || action
+}
+
+// 获取操作描述
+const getLogDescription = (action) => {
+  const descriptionMap = {
+    'CREATE': '创建了新的质量问题',
+    'UPDATE': '更新了问题描述和相关图片',
+    'ACCEPT': '质量问题验收通过，问题状态更新为"已验收"',
+    'REVOKE_ACCEPT': '撤销了验收状态',
+    'REVERIFY': '复验确认问题已解决'
+  }
+  return descriptionMap[action] || '执行了操作'
+}
+
+// 获取操作描述图标
+const getLogDescriptionIcon = (action) => {
+  const iconMap = {
+    'CREATE': Edit,
+    'UPDATE': Edit,
+    'ACCEPT': Check,
+    'REVOKE_ACCEPT': RefreshLeft,
+    'REVERIFY': Check
+  }
+  return iconMap[action] || Document
 }
 
 const getLogIcon = (action) => {
@@ -1377,6 +1406,29 @@ const formatDateTime = (datetime) => {
 }
 
 /* 日志查看对话框样式 */
+.logs-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.logs-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.logs-record-time {
+  font-size: 14px;
+  color: #67c23a;
+  font-weight: 500;
+  background-color: #f0f9ff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid #d4edda;
+}
+
 .logs-loading, .logs-empty {
   display: flex;
   flex-direction: column;
@@ -1389,6 +1441,19 @@ const formatDateTime = (datetime) => {
 .logs-loading .el-icon {
   font-size: 32px;
   margin-bottom: 12px;
+}
+
+.log-description {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 14px;
+  color: #303133;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  border-radius: 6px;
+  border-left: 3px solid #409eff;
 }
 
 .logs-container {
