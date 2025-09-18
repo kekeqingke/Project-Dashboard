@@ -64,7 +64,11 @@ export const qualityIssueAPI = {
   getQualityIssues: (roomId) => api.get('/quality-issues/', { params: { room_id: roomId } }),
   createQualityIssue: (issueData) => api.post('/quality-issues/', issueData),
   acceptQualityIssue: (issueId) => api.put(`/quality-issues/${issueId}/accept`),
-  deleteQualityIssue: (issueId) => api.delete(`/quality-issues/${issueId}`)
+  deleteQualityIssue: (issueId) => api.delete(`/quality-issues/${issueId}`),
+  exportQualityIssues: (roomIds, statusFilter = 'all') => api.get('/export-quality-issues', {
+    params: { room_ids: roomIds, status_filter: statusFilter },
+    responseType: 'blob'
+  })
 }
 
 

@@ -17,12 +17,20 @@
     <div v-else class="dashboard-content">
       <!-- 房间卡片列表 -->
       <div class="rooms-grid">
-        <div v-for="room in rooms" :key="room.id" class="room-card">
-          <el-card 
-            :class="{ 'active-room': selectedRoomId === room.id }"
-            @click="selectRoom(room.id)"
-          >
-            <div class="room-header">
+          <div v-for="room in rooms" :key="room.id" class="room-card">
+            <el-card 
+              :class="{ 'active-room': selectedRoomId === room.id, 'selected-room': selectedRoomIds.includes(room.id) }"
+              @click="selectRoom(room.id)"
+            >
+              <div class="room-selection">
+                <el-checkbox 
+                  :model-value="selectedRoomIds.includes(room.id)"
+                  @change="toggleRoomSelection(room.id)"
+                  @click.stop
+                  size="small"
+                />
+              </div>
+              <div class="room-header">
               <h4>{{ room.building_unit }} {{ formatRoomNumber(room.room_number) }}号房</h4>
               <el-tag :type="getStatusType(room.status)">{{ room.status }}</el-tag>
             </div>
@@ -36,8 +44,8 @@
               </div>
             </div>
           </el-card>
+          </div>
         </div>
-      </div>
 
       <!-- 房间详情面板 -->
       <div v-if="selectedRoomId && currentRoom" class="room-details">
@@ -169,10 +177,40 @@
                 <el-icon><Tools /></el-icon>
                 <span>质量问题管理</span>
               </div>
-              <el-button type="primary" @click="openQualityIssueDialog">
-                <el-icon><Plus /></el-icon>
-                添加质量问题
-              </el-button>
+              <div class="module-actions">
+                <!-- 导出控制 -->
+                <div class="export-controls">
+                  <el-checkbox 
+                    v-model="selectAll" 
+                    :indeterminate="isIndeterminate"
+                    @change="handleSelectAll"
+                    size="small"
+                  >
+                    全选房间
+                  </el-checkbox>
+                  <span v-if="selectedRoomIds.length > 0" class="selection-info">
+                    (已选{{ selectedRoomIds.length }}个)
+                  </span>
+                  <template v-if="selectedRoomIds.length > 0">
+                    <el-select v-model="exportStatusFilter" placeholder="状态" size="small" style="width: 90px;">
+                      <el-option label="全部" value="all" />
+                      <el-option label="待验收" value="pending" />
+                      <el-option label="已验收" value="completed" />
+                    </el-select>
+                    <el-button type="success" size="small" @click="exportSelectedRooms" :loading="exportLoading">
+                      <el-icon><Download /></el-icon>
+                      导出Excel
+                    </el-button>
+                    <el-button type="info" size="small" @click="clearSelection">
+                      清空
+                    </el-button>
+                  </template>
+                </div>
+                <el-button type="primary" @click="openQualityIssueDialog">
+                  <el-icon><Plus /></el-icon>
+                  添加质量问题
+                </el-button>
+              </div>
             </div>
           </template>
           
@@ -202,6 +240,24 @@
                   <div class="issue-section">
                     <strong>记录人:</strong>
                     <span>{{ getUserDisplayName(issue) }} | 录入：{{ formatDateOnly(issue.record_date || issue.created_at) }}</span>
+                  </div>
+                  <div class="issue-section">
+                    <strong>责任单位:</strong>
+                    <div v-if="authStore.user?.role === 'project_engineer' && issue.status === '待验收'" class="responsible-unit-input">
+                      <el-autocomplete
+                        v-model="issue.responsible_unit"
+                        :fetch-suggestions="getResponsibleUnitSuggestions"
+                        placeholder="请输入责任单位"
+                        @blur="updateResponsibleUnit(issue)"
+                        @select="updateResponsibleUnit(issue)"
+                        clearable
+                        style="width: 200px;"
+                        size="small"
+                      />
+                    </div>
+                    <span v-else class="readonly-field">
+                      {{ issue.responsible_unit || '待项目工程师分配' }}
+                    </span>
                   </div>
                   <!-- 验收信息 -->
                   <div v-if="issue.status === '已验收'" class="issue-section">
@@ -284,6 +340,15 @@
             placeholder="请选择录入时间"
             format="YYYY/MM/DD"
             value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="责任单位" v-if="authStore.user?.role === 'project_engineer'">
+          <el-autocomplete
+            v-model="qualityIssueForm.responsible_unit"
+            :fetch-suggestions="getResponsibleUnitSuggestions"
+            placeholder="请输入责任单位（可选）"
+            clearable
             style="width: 100%"
           />
         </el-form-item>
@@ -406,8 +471,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, Tools, Plus, Upload, Close, Setting, Document, User, Edit, Check, RefreshLeft, House, DataAnalysis, Clock, CircleCheck } from '@element-plus/icons-vue'
+import { Loading, Tools, Plus, Upload, Close, Setting, Document, User, Edit, Check, RefreshLeft, House, DataAnalysis, Clock, CircleCheck, Download } from '@element-plus/icons-vue'
 import api from '../api'
+import * as API from '../api/index.js'
+const { qualityIssueAPI } = API
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -418,6 +485,12 @@ const rooms = ref([])
 const selectedRoomId = ref(null)
 const currentRoom = ref(null)
 const qualityIssues = ref([])
+
+// 房间多选相关
+const selectedRoomIds = ref([])
+const selectAll = ref(false)
+const exportStatusFilter = ref('all')
+const exportLoading = ref(false)
 
 // 对话框控制
 const qualityIssueDialogVisible = ref(false)
@@ -437,6 +510,7 @@ const qualityIssueForm = ref({
   description: '',
   issue_type: '质量瑕疵',
   record_date: '',
+  responsible_unit: '',
   uploadedImages: []
 })
 
@@ -448,6 +522,85 @@ const getWorkplaceTitle = () => {
     'maintenance_engineer': '维修工程师工作台'
   }
   return titleMap[role] || '工程师工作台'
+}
+
+// 全选状态计算
+const isIndeterminate = computed(() => {
+  return selectedRoomIds.value.length > 0 && selectedRoomIds.value.length < rooms.value.length
+})
+
+// 房间选择相关方法
+const toggleRoomSelection = (roomId) => {
+  const index = selectedRoomIds.value.indexOf(roomId)
+  if (index > -1) {
+    selectedRoomIds.value.splice(index, 1)
+  } else {
+    selectedRoomIds.value.push(roomId)
+  }
+  updateSelectAllState()
+}
+
+const handleSelectAll = (checked) => {
+  if (checked) {
+    selectedRoomIds.value = rooms.value.map(room => room.id)
+  } else {
+    selectedRoomIds.value = []
+  }
+}
+
+const updateSelectAllState = () => {
+  selectAll.value = selectedRoomIds.value.length === rooms.value.length
+}
+
+const clearSelection = () => {
+  selectedRoomIds.value = []
+  selectAll.value = false
+}
+
+// 导出选中房间的质量问题
+const exportSelectedRooms = async () => {
+  if (selectedRoomIds.value.length === 0) {
+    ElMessage.warning('请先选择要导出的房间')
+    return
+  }
+  
+  try {
+    exportLoading.value = true
+    
+    const roomIdsStr = selectedRoomIds.value.join(',')
+    const response = await qualityIssueAPI.exportQualityIssues(roomIdsStr, exportStatusFilter.value)
+    
+    // 处理文件下载
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    
+    // 从响应头获取文件名
+    const contentDisposition = response.headers['content-disposition']
+    let filename = `质量问题清单_${new Date().toLocaleDateString().replace(/\//g, '')}.xlsx`
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename\*?=['"]([^'"]+)/)
+      if (filenameMatch) {
+        filename = decodeURIComponent(filenameMatch[1])
+      }
+    }
+    
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    ElMessage.success('Excel文件导出成功')
+  } catch (error) {
+    console.error('导出Excel失败:', error)
+    ElMessage.error('导出Excel失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    exportLoading.value = false
+  }
 }
 
 // 组件挂载时获取数据
@@ -636,6 +789,7 @@ const openQualityIssueDialog = () => {
     description: '',
     issue_type: '质量瑕疵',
     record_date: today,
+    responsible_unit: '',
     uploadedImages: []
   }
   qualityIssueDialogVisible.value = true
@@ -648,6 +802,7 @@ const resetQualityIssueForm = () => {
     description: '',
     issue_type: '质量瑕疵',
     record_date: today,
+    responsible_unit: '',
     uploadedImages: []
   }
   ElMessage.success('表单已重置')
@@ -671,6 +826,7 @@ const saveQualityIssue = async () => {
       description: qualityIssueForm.value.description,
       issue_type: qualityIssueForm.value.issue_type,
       record_date: qualityIssueForm.value.record_date,
+      responsible_unit: qualityIssueForm.value.responsible_unit,
       images: JSON.stringify(qualityIssueForm.value.uploadedImages)
     }
     
@@ -902,6 +1058,50 @@ const formatDateTime = (datetime) => {
   })
 }
 
+// 责任单位相关方法
+const getResponsibleUnitSuggestions = (queryString, cb) => {
+  // 从localStorage获取历史输入的责任单位
+  const history = JSON.parse(localStorage.getItem('responsibleUnitHistory') || '[]')
+
+  // 只显示历史记录中匹配的项目，不显示预设选项
+  if (!queryString.trim()) {
+    // 如果查询为空，显示最近的几个历史记录
+    cb(history.slice(0, 5).map(unit => ({ value: unit })))
+  } else {
+    // 根据输入过滤历史记录
+    const suggestions = history
+      .filter(unit => unit.toLowerCase().includes(queryString.toLowerCase()))
+      .map(unit => ({ value: unit }))
+    cb(suggestions)
+  }
+}
+
+const updateResponsibleUnit = async (issue) => {
+  if (!issue.responsible_unit || !issue.responsible_unit.trim()) return
+
+  try {
+    // 使用专门的责任单位更新API
+    await api.put(`/quality-issues/${issue.id}/responsible-unit`, {
+      responsible_unit: issue.responsible_unit.trim()
+    })
+
+    // 保存到历史记录
+    const history = JSON.parse(localStorage.getItem('responsibleUnitHistory') || '[]')
+    if (!history.includes(issue.responsible_unit.trim())) {
+      history.unshift(issue.responsible_unit.trim())
+      // 只保留最近10个
+      if (history.length > 10) history.pop()
+      localStorage.setItem('responsibleUnitHistory', JSON.stringify(history))
+    }
+
+    ElMessage.success('责任单位更新成功')
+  } catch (error) {
+    console.error('更新责任单位失败:', error)
+    const errorMsg = error.response?.data?.detail || '更新责任单位失败'
+    ElMessage.error(errorMsg)
+  }
+}
+
 // 统一的北京时间格式化函数，包含时区标注
 const formatDateTimeWithTimezone = (datetime) => {
   if (!datetime) return ''
@@ -974,9 +1174,6 @@ const formatDateTimeWithTimezone = (datetime) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow-y: auto;
-  height: fit-content;
-  max-height: 100%;
 }
 
 .room-card .el-card {
@@ -994,6 +1191,11 @@ const formatDateTimeWithTimezone = (datetime) => {
 .room-card .el-card.active-room {
   border-color: #67c23a;
   background-color: #f0f9ff;
+}
+
+.room-card .el-card.selected-room {
+  border-color: #409eff;
+  background-color: #f0f8ff;
 }
 
 .room-header {
@@ -1087,6 +1289,30 @@ const formatDateTimeWithTimezone = (datetime) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.module-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.export-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.selection-info {
+  color: #909399;
+  font-size: 12px;
 }
 
 .module-title {
@@ -1628,5 +1854,39 @@ const formatDateTimeWithTimezone = (datetime) => {
   max-height: 150px;
   overflow-y: auto;
   margin: 0;
+}
+
+/* 房间卡片选择样式优化 */
+
+/* 房间卡片选择样式 */
+.room-selection {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  opacity: 0.7;
+  transition: opacity 0.3s ease;
+}
+
+.room-card:hover .room-selection {
+  opacity: 1;
+}
+
+.room-card {
+  position: relative;
+}
+
+/* 责任单位相关样式 */
+.responsible-unit-input {
+  margin-top: 4px;
+}
+
+.readonly-field {
+  color: #606266;
+  font-style: italic;
+  padding: 4px 8px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  display: inline-block;
 }
 </style>

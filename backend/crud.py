@@ -520,6 +520,49 @@ def delete_quality_issue(db: Session, issue_id: int):
     
     return True
 
+def update_responsible_unit(db: Session, issue_id: int, responsible_unit: str, user_id: int):
+    """项目工程师更新质量问题的责任单位"""
+    issue = db.query(models.QualityIssue).filter(models.QualityIssue.id == issue_id).first()
+
+    if not issue:
+        return None
+
+    # 获取操作用户信息
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user or user.role != "project_engineer":
+        return None  # 只允许项目工程师更新责任单位
+
+    # 记录变更前数据
+    before_data = json.dumps({
+        "responsible_unit": issue.responsible_unit
+    })
+
+    # 更新责任单位
+    issue.responsible_unit = responsible_unit
+
+    # 记录变更后数据
+    after_data = json.dumps({
+        "responsible_unit": issue.responsible_unit
+    })
+
+    # 创建操作日志
+    log = models.QualityIssueLog(
+        issue_id=issue_id,
+        action="UPDATE_RESPONSIBLE_UNIT",
+        operator_id=user_id,
+        operator_name=user.name,
+        operator_role=user.role,
+        timestamp=datetime.utcnow(),
+        before_data=before_data,
+        after_data=after_data,
+        remarks="项目工程师更新责任单位"
+    )
+
+    db.add(log)
+    db.commit()
+    db.refresh(issue)
+
+    return issue
 
 
 # Room status management
@@ -640,6 +683,18 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
         owner_name = "/".join(names) if len(names) > 1 else names[0] if names else ""
         owner_phone = "/".join(phones) if len(phones) > 1 else phones[0] if phones else ""
         
+        # 获取房间的用户分配信息
+        assignments = db.query(models.UserRoom).filter(models.UserRoom.room_id == room.id).all()
+        assigned_users = []
+        for assignment in assignments:
+            user = db.query(models.User).filter(models.User.id == assignment.user_id).first()
+            if user:
+                assigned_users.append({
+                    'id': user.id,
+                    'name': user.name,
+                    'role': user.role
+                })
+
         # 构建带聚合数据的房间对象
         room_summary = {
             # 基本房间信息
@@ -653,11 +708,14 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'expected_delivery_date': room.expected_delivery_date,  # 添加预计交付时间
             'created_at': room.created_at,
             'updated_at': room.updated_at,
-            
+
             # 户主信息
             'owner_name': owner_name or "",
             'owner_phone': owner_phone or "",
-            
+
+            # 用户分配信息
+            'assigned_users': assigned_users,
+
             # 聚合的质量问题信息
             'pending_issues_count': len(pending_issues),
             'reverification_issues_count': len(reverification_issues),
@@ -665,7 +723,7 @@ def get_room_summary(db: Session, building_unit: Optional[str] = None):
             'latest_issue_description': latest_pending_issue.description if latest_pending_issue else "",
             'latest_issue_type': latest_pending_issue.issue_type if latest_pending_issue else "",
             'latest_issue_record_date': latest_pending_issue.record_date if latest_pending_issue else None,
-            
+
             'latest_feedback': ""
         }
         
@@ -809,6 +867,53 @@ def import_room_owners(db: Session, owner_data: List[dict]) -> dict:
         'created': 0,  # 不再创建新记录，只更新现有房间
         'errors': errors
     }
+
+def get_quality_issues_for_export(db: Session, room_ids: List[int], user_id: Optional[int] = None):
+    """获取指定房间的质量问题数据用于Excel导出"""
+    from sqlalchemy.orm import joinedload
+    
+    # 构建基础查询
+    query = db.query(models.QualityIssue).options(
+        joinedload(models.QualityIssue.user),
+        joinedload(models.QualityIssue.room)
+    ).filter(models.QualityIssue.room_id.in_(room_ids))
+    
+    # 如果指定了user_id，需要验证权限（只能导出分配给自己的房间）
+    if user_id is not None:
+        query = query.join(models.UserRoom, models.QualityIssue.room_id == models.UserRoom.room_id).filter(models.UserRoom.user_id == user_id)
+    
+    issues = query.all()
+    
+    # 构建导出数据
+    export_data = []
+    for issue in issues:
+        # 获取用户显示信息
+        user_display = ""
+        if issue.user:
+            role_map = {
+                'customer_ambassador': '客户大使',
+                'project_engineer': '项目工程师',
+                'maintenance_engineer': '维修工程师'
+            }
+            role_text = role_map.get(issue.user.role, issue.user.role)
+            user_display = f"{issue.user.name}({role_text})"
+        
+        export_data.append({
+            "building_unit": issue.room.building_unit if issue.room else "",
+            "room_number": issue.room.room_number if issue.room else "",
+            "description": issue.description or "",
+            "issue_type": issue.issue_type or "",
+            "user_display": user_display,
+            "record_date": issue.record_date or issue.created_at,
+            "status": issue.status or "",
+            "responsible_unit": issue.responsible_unit or "",
+            "images": issue.images or "[]"
+        })
+    
+    # 按房间号和录入时间排序
+    export_data.sort(key=lambda x: (x["building_unit"], int(x["room_number"]) if x["room_number"].isdigit() else 999, x["record_date"] or datetime.min))
+    
+    return export_data
 
 def import_user_room_assignments(db: Session, assignment_data: List[dict]) -> dict:
     """批量导入用户房间分配"""

@@ -2,7 +2,7 @@
   <el-container>
     <el-header>
       <div class="header">
-        <h2>ZWY项目管理系统</h2>
+        <h2>瑧湾悦项目品质管理系统</h2>
         <div class="user-info">
           <span>{{ authStore.user?.name }}（{{ getRoleName(authStore.user?.role) }}）</span>
           <el-button @click="logout" type="text">退出</el-button>
@@ -18,29 +18,29 @@
           @select="handleMenuSelect"
         >
           <!-- 客户大使菜单 -->
-          <el-menu-item v-if="authStore.isCustomerAmbassador" index="/ambassador">
+          <el-menu-item v-if="authStore.isCustomerAmbassador" index="/dashboard/ambassador">
             <el-icon><User /></el-icon>
             <span>我的工作台</span>
           </el-menu-item>
-          
+
           <!-- 工程师菜单 -->
-          <el-menu-item v-if="authStore.isEngineer" index="/engineer">
+          <el-menu-item v-if="authStore.isEngineer" index="/dashboard/engineer">
             <el-icon><User /></el-icon>
             <span>我的工作台</span>
           </el-menu-item>
-          
+
           <!-- 管理员菜单 -->
-          <el-menu-item v-if="authStore.isAdmin" index="/admin/users">
+          <el-menu-item v-if="authStore.isAdmin" index="/dashboard/admin/users">
             <el-icon><User /></el-icon>
             <span>用户管理</span>
           </el-menu-item>
-          
-          <el-menu-item v-if="authStore.isAdmin" index="/rooms">
+
+          <el-menu-item v-if="authStore.isAdmin" index="/dashboard/rooms">
             <el-icon><House /></el-icon>
             <span>房间管理</span>
           </el-menu-item>
-          
-          <el-menu-item v-if="authStore.isAdmin" index="/admin/summary">
+
+          <el-menu-item v-if="authStore.isAdmin" index="/dashboard/admin/summary">
             <el-icon><DataAnalysis /></el-icon>
             <span>数据汇总</span>
           </el-menu-item>
@@ -52,7 +52,7 @@
               <el-icon><Avatar /></el-icon>
               <span>个人中心</span>
             </template>
-            <el-menu-item index="/profile/change-password">
+            <el-menu-item index="/dashboard/profile/change-password">
               <el-icon><Lock /></el-icon>
               <span>修改密码</span>
             </el-menu-item>
@@ -90,20 +90,22 @@ const showFirstLoginModal = ref(false)
 
 onMounted(() => {
   authStore.initializeAuth()
-  
+
   // 检查是否首次登录
   if (authStore.firstLogin) {
     showFirstLoginModal.value = true
   }
-  
-  if (route.path === '/dashboard') {
+
+  // 只有在明确访问 /dashboard 路径时才进行角色跳转
+  // 避免在子路由导航时误触发跳转
+  if (route.path === '/dashboard' && !route.query.from) {
     // 根据用户角色跳转到不同的界面
     if (authStore.isCustomerAmbassador) {
-      router.push('/ambassador')
+      router.push('/dashboard/ambassador')
     } else if (authStore.isEngineer) {
-      router.push('/engineer')
+      router.push('/dashboard/engineer')
     } else if (authStore.isAdmin) {
-      router.push('/admin/users')
+      router.push('/dashboard/admin/users')
     }
   }
 })

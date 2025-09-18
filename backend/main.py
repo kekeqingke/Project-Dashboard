@@ -268,6 +268,24 @@ def get_quality_issue_logs(issue_id: int, db: Session = Depends(get_db),
     """获取质量问题操作日志"""
     return crud.get_quality_issue_logs(db=db, issue_id=issue_id)
 
+@app.put("/quality-issues/{issue_id}/responsible-unit")
+def update_responsible_unit(issue_id: int, responsible_unit: dict, db: Session = Depends(get_db),
+                           current_user: models.User = Depends(auth.get_current_user)):
+    """项目工程师更新质量问题的责任单位"""
+    if current_user.role != "project_engineer":
+        raise HTTPException(status_code=403, detail="只有项目工程师可以分配责任单位")
+
+    unit_name = responsible_unit.get("responsible_unit", "").strip()
+    if not unit_name:
+        raise HTTPException(status_code=400, detail="责任单位不能为空")
+
+    result = crud.update_responsible_unit(db=db, issue_id=issue_id,
+                                        responsible_unit=unit_name, user_id=current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="质量问题不存在或无权限操作")
+
+    return {"message": "责任单位更新成功", "responsible_unit": unit_name}
+
 @app.put("/quality-issues/{issue_id}", response_model=schemas.QualityIssue)
 def update_quality_issue(issue_id: int, issue_update: schemas.QualityIssueUpdate,
                         db: Session = Depends(get_db),
@@ -291,6 +309,118 @@ def delete_quality_issue(issue_id: int, db: Session = Depends(get_db),
         raise HTTPException(status_code=404, detail="质量问题不存在")
     return {"message": "质量问题删除成功"}
 
+# 质量问题Excel导出接口
+@app.get("/export-quality-issues")
+def export_quality_issues(
+    room_ids: str = Query(..., description="房间ID列表，用逗号分隔"),
+    status_filter: str = Query("all", description="状态筛选: all/pending/completed"),
+    issue_type: str = Query("", description="问题类型筛选: 质量瑕疵/材料备货"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """导出指定房间的质量问题Excel文件"""
+    try:
+        # 解析房间ID列表
+        room_id_list = [int(id.strip()) for id in room_ids.split(',') if id.strip()]
+        if not room_id_list:
+            raise HTTPException(status_code=400, detail="请选择要导出的房间")
+        
+        # 获取质量问题数据
+        issues_data = crud.get_quality_issues_for_export(db, room_id_list, current_user.id if current_user.role != "admin" else None)
+        
+        # 根据状态筛选
+        if status_filter == "pending":
+            issues_data = [issue for issue in issues_data if issue["status"] == "待验收"]
+        elif status_filter == "completed":
+            issues_data = [issue for issue in issues_data if issue["status"] == "已验收"]
+
+        # 根据问题类型筛选
+        if issue_type and issue_type.strip():
+            issues_data = [issue for issue in issues_data if issue["issue_type"] == issue_type.strip()]
+
+        if not issues_data:
+            raise HTTPException(status_code=404, detail="未找到符合条件的质量问题数据")
+        
+        # 创建Excel工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "质量问题清单"
+        
+        # 设置标题行
+        headers = [
+            "楼栋", "房号", "问题描述", "问题类型", "记录人", "录入时间", 
+            "问题状态", "责任单位"
+        ]
+        
+        # 写入标题行
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+        
+        # 写入数据行
+        for row_idx, issue in enumerate(issues_data, 2):
+            ws.cell(row=row_idx, column=1, value=issue.get("building_unit", ""))
+            ws.cell(row=row_idx, column=2, value=format_room_number(issue.get("room_number", "")))
+            ws.cell(row=row_idx, column=3, value=issue.get("description", ""))
+            ws.cell(row=row_idx, column=4, value=issue.get("issue_type", ""))
+            ws.cell(row=row_idx, column=5, value=issue.get("user_display", ""))
+            
+            # 录入时间格式化
+            record_date = issue.get("record_date")
+            if record_date:
+                if isinstance(record_date, str):
+                    ws.cell(row=row_idx, column=6, value=record_date[:10])  # 取日期部分
+                else:
+                    ws.cell(row=row_idx, column=6, value=record_date.strftime("%Y-%m-%d"))
+            else:
+                ws.cell(row=row_idx, column=6, value="")
+            
+            ws.cell(row=row_idx, column=7, value=issue.get("status", ""))
+            ws.cell(row=row_idx, column=8, value=issue.get("responsible_unit", ""))  # 责任单位
+        
+        # 自动调整列宽
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 30)  # 最大宽度30
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # 保存到内存
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        # 生成文件名
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        status_text = {"all": "全部", "pending": "待验收", "completed": "已验收"}.get(status_filter, "全部")
+        filename = f"质量问题清单_{status_text}_{current_time}.xlsx"
+        encoded_filename = quote(filename, safe='')
+        
+        # 返回文件流
+        return StreamingResponse(
+            io.BytesIO(output.getvalue()),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename*=UTF-8\'\'{encoded_filename}',
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache"
+            }
+        )
+    
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Export quality issues error: {str(e)}")
+        print(f"Error details: {error_details}")
+        raise HTTPException(status_code=500, detail=f"导出质量问题Excel文件失败: {str(e)}")
 
 # 房间状态更新接口
 @app.put("/rooms/{room_id}/delivery-status")
@@ -541,6 +671,20 @@ def import_user_room_assignments(assignment_data: List[schemas.UserRoomAssignmen
     result = crud.import_user_room_assignments(db=db, assignment_data=assignment_dict_data)
     return result
 
+# 房间号格式化函数
+def format_room_number(room_number):
+    """格式化房间号：3-9楼去掉前导0，10楼以上保持4位数"""
+    if not room_number:
+        return room_number
+
+    # 如果房间号是4位数字且前两位是03-09，去掉前导0
+    import re
+    if re.match(r'^0[3-9]\d{2}$', str(room_number)):
+        return str(room_number)[1:]
+
+    # 其他情况保持原样（如1201等高楼层）
+    return str(room_number)
+
 # Excel导出接口
 @app.get("/admin/export")
 def export_to_excel(
@@ -618,7 +762,7 @@ def export_to_excel(
         # 写入数据行
         for row_idx, room in enumerate(filtered_rooms, 2):
             ws.cell(row=row_idx, column=1, value=room.get("building_unit", ""))
-            ws.cell(row=row_idx, column=2, value=room.get("room_number", ""))
+            ws.cell(row=row_idx, column=2, value=format_room_number(room.get("room_number", "")))
             ws.cell(row=row_idx, column=3, value=room.get("owner_name", "") or "未录入")
             ws.cell(row=row_idx, column=4, value=room.get("owner_phone", "") or "未录入")
             ws.cell(row=row_idx, column=5, value=room.get("status", ""))

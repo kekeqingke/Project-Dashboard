@@ -75,6 +75,7 @@ class QualityIssue(Base):
     accepted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     accepted_at = Column(DateTime, nullable=True)
     record_date = Column(DateTime, nullable=True)  # 录入时间（用户指定的日期）
+    responsible_unit = Column(String(200), nullable=True)  # 责任单位
     created_at = Column(DateTime, server_default=func.now())
     
     # 关系

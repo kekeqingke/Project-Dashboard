@@ -12,7 +12,23 @@
       </div>
     </div>
 
-    <el-table :data="users" v-loading="loading">
+    <!-- 角色筛选器 -->
+    <div class="filter-section">
+      <el-select
+        v-model="roleFilter"
+        placeholder="筛选角色"
+        clearable
+        style="width: 200px"
+        @clear="roleFilter = ''"
+      >
+        <el-option label="全部角色" value="" />
+        <el-option label="客户大使" value="customer_ambassador" />
+        <el-option label="项目工程师" value="project_engineer" />
+        <el-option label="维修工程师" value="maintenance_engineer" />
+      </el-select>
+    </div>
+
+    <el-table :data="sortedAndFilteredUsers" v-loading="loading">
       <el-table-column prop="username" label="用户名" width="120" />
       <el-table-column prop="name" label="姓名" width="120" />
       <el-table-column prop="role" label="角色" width="120">
@@ -274,6 +290,8 @@ const roomFilter = ref({
   building: ''
 })
 
+const roleFilter = ref('')
+
 const userRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -287,6 +305,28 @@ const filteredRooms = computed(() => {
       return false
     }
     return true
+  })
+})
+
+const sortedAndFilteredUsers = computed(() => {
+  let filtered = users.value
+
+  // 角色筛选
+  if (roleFilter.value) {
+    filtered = filtered.filter(user => user.role === roleFilter.value)
+  }
+
+  // 按角色排序
+  const roleOrder = {
+    'customer_ambassador': 1,
+    'project_engineer': 2,
+    'maintenance_engineer': 3
+  }
+
+  return filtered.sort((a, b) => {
+    const orderA = roleOrder[a.role] || 999
+    const orderB = roleOrder[b.role] || 999
+    return orderA - orderB
   })
 })
 
@@ -658,6 +698,13 @@ onMounted(() => {
 
 .header-buttons {
   display: flex;
+  gap: 10px;
+}
+
+.filter-section {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 

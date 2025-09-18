@@ -2,74 +2,127 @@
   <div class="admin-summary">
     <div class="header">
       <h3>数据汇总</h3>
-      <div class="filters">
-        <div class="filter-row">
-          <el-select v-model="selectedBuilding" placeholder="选择楼栋" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="3单元" value="3单元" />
-            <el-option label="4单元" value="4单元" />
-          </el-select>
-          
-          <el-select v-model="selectedStatus" placeholder="整改状态" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="整改中" value="整改中" />
-            <el-option label="闭户" value="闭户" />
-          </el-select>
-          
-          <el-select v-model="selectedDelivery" placeholder="交付状态" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="待交付" value="待交付" />
-            <el-option label="已交付" value="已交付" />
-          </el-select>
-          
-          <el-select v-model="selectedContract" placeholder="签约状态" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="待签约" value="待签约" />
-            <el-option label="已签约" value="已签约" />
-          </el-select>
-          
-          <el-select v-model="selectedIssueFilter" placeholder="问题筛选" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="有待验收" value="has_issues" />
-            <el-option label="无问题" value="no_issues" />
-          </el-select>
-          
-          
-          <el-select v-model="selectedLetterFilter" placeholder="信件状态" clearable @change="onFilterChange" style="width: 120px">
-            <el-option label="全部" value="" />
-            <el-option label="无" value="无" />
-            <el-option label="ZX" value="ZX" />
-            <el-option label="SX" value="SX" />
-            <el-option label="ZX+SX" value="ZX+SX" />
-          </el-select>
-          
-          
-          <el-button type="primary" @click="refreshData" :loading="loading">
-            刷新
+
+      <!-- 导出功能区域 -->
+      <div class="export-sections-container">
+        <!-- 房间信息导出区域 -->
+        <div class="export-section room-export">
+          <div class="section-title">
+            <el-icon><House /></el-icon>
+            <span>房间信息导出</span>
+          </div>
+          <div class="filter-content">
+            <div class="filter-row">
+              <el-select v-model="selectedBuilding" placeholder="选择楼栋" clearable @change="onFilterChange" size="small">
+                <el-option label="全部" value="" />
+                <el-option label="3单元" value="3单元" />
+                <el-option label="4单元" value="4单元" />
+              </el-select>
+
+              <el-select v-model="selectedStatus" placeholder="整改状态" clearable @change="onFilterChange" size="small">
+                <el-option label="全部" value="" />
+                <el-option label="整改中" value="整改中" />
+                <el-option label="闭户" value="闭户" />
+              </el-select>
+
+              <el-select v-model="selectedDelivery" placeholder="交付状态" clearable @change="onFilterChange" size="small">
+                <el-option label="全部" value="" />
+                <el-option label="待交付" value="待交付" />
+                <el-option label="已交付" value="已交付" />
+              </el-select>
+            </div>
+            <div class="filter-row">
+              <el-select v-model="selectedContract" placeholder="签约状态" clearable @change="onFilterChange" size="small">
+                <el-option label="全部" value="" />
+                <el-option label="待签约" value="待签约" />
+                <el-option label="已签约" value="已签约" />
+              </el-select>
+
+              <el-select v-model="selectedIssueFilter" placeholder="问题筛选" clearable @change="onFilterChange" size="small">
+                <el-option label="全部" value="" />
+                <el-option label="有待验收" value="has_issues" />
+                <el-option label="无问题" value="no_issues" />
+              </el-select>
+
+              <el-select v-model="selectedLetterFilter" placeholder="信件状态" clearable @change="onFilterChange" size="small">
+                <el-option label="全部" value="" />
+                <el-option label="无" value="无" />
+                <el-option label="ZX" value="ZX" />
+                <el-option label="SX" value="SX" />
+                <el-option label="ZX+SX" value="ZX+SX" />
+              </el-select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 质量问题导出区域 -->
+        <div class="export-section quality-export">
+          <div class="section-title">
+            <el-icon><Tools /></el-icon>
+            <span>质量问题导出</span>
+          </div>
+          <div class="filter-content">
+            <div class="filter-row">
+              <el-select v-model="qualityExportBuilding" placeholder="选择楼栋" clearable size="small">
+                <el-option label="全部" value="" />
+                <el-option label="3单元" value="3单元" />
+                <el-option label="4单元" value="4单元" />
+              </el-select>
+
+              <el-select v-model="qualityExportStatus" placeholder="问题状态" clearable size="small">
+                <el-option label="全部" value="all" />
+                <el-option label="待验收" value="pending" />
+                <el-option label="已验收" value="completed" />
+              </el-select>
+
+              <el-select v-model="qualityExportType" placeholder="问题类型" clearable size="small">
+                <el-option label="全部" value="" />
+                <el-option label="质量瑕疵" value="质量瑕疵" />
+                <el-option label="材料备货" value="材料备货" />
+              </el-select>
+            </div>
+            <div class="filter-row">
+              <!-- 空的第二行，保持与房间信息导出对齐 -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 统一的导出按钮区域 -->
+      <div class="export-buttons-container">
+        <div class="export-button-section">
+          <el-button type="success" @click="exportData" :loading="loading" size="default">
+            <el-icon><House /></el-icon>
+            导出房间信息Excel
           </el-button>
-          <el-button type="success" @click="exportData">
-            导出Excel
+        </div>
+        <div class="export-button-section">
+          <el-button type="success" @click="exportQualityIssues" :loading="qualityExportLoading" size="default">
+            <el-icon><Tools /></el-icon>
+            导出质量问题Excel
           </el-button>
         </div>
       </div>
     </div>
 
     <!-- 统计卡片 -->
-    <el-row :gutter="20" class="stats-cards">
-      <el-col :span="4" v-for="(stat, key) in statusStats" :key="key">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-number">{{ stat.count }}</div>
-            <div class="stat-label">{{ stat.label }}</div>
-          </div>
-          <div class="stat-icon" :class="stat.iconClass">
-            <el-icon>
-              <component :is="stat.icon" />
-            </el-icon>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div class="stats-cards-container">
+      <div class="stats-cards">
+        <div v-for="(stat, key) in statusStats" :key="key" class="stat-card-wrapper">
+          <el-card class="stat-card">
+            <div class="stat-content">
+              <div class="stat-number">{{ stat.count }}</div>
+              <div class="stat-label">{{ stat.label }}</div>
+            </div>
+            <div class="stat-icon" :class="stat.iconClass">
+              <el-icon>
+                <component :is="stat.icon" />
+              </el-icon>
+            </div>
+          </el-card>
+        </div>
+      </div>
+    </div>
 
     <!-- 房间详细列表 -->
     <el-card class="room-details">
@@ -99,7 +152,24 @@
             <span>{{ scope.row.owner_phone || '未录入' }}</span>
           </template>
         </el-table-column>
-        
+
+        <!-- 工程师信息列 -->
+        <el-table-column label="客户大使" width="120">
+          <template #default="scope">
+            <span>{{ getUserByRole(scope.row.assigned_users, 'customer_ambassador')?.name || '未分配' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="项目工程师" width="120">
+          <template #default="scope">
+            <span>{{ getUserByRole(scope.row.assigned_users, 'project_engineer')?.name || '未分配' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="维修工程师" width="120">
+          <template #default="scope">
+            <span>{{ getUserByRole(scope.row.assigned_users, 'maintenance_engineer')?.name || '未分配' }}</span>
+          </template>
+        </el-table-column>
+
         <!-- 三类状态列 -->
         <el-table-column prop="status" label="整改状态" width="90">
           <template #default="scope">
@@ -188,7 +258,7 @@ import { useRouter } from 'vue-router'
 import * as API from '../api/index.js'
 const { adminAPI } = API
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { House, Tools, CircleCheck, SuccessFilled } from '@element-plus/icons-vue'
+import { House, Tools, CircleCheck, SuccessFilled, Download } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -207,6 +277,12 @@ const selectedDelivery = ref('')
 const selectedContract = ref('')
 const selectedIssueFilter = ref('')
 const selectedLetterFilter = ref('')
+
+// 质量问题导出相关
+const qualityExportBuilding = ref('')
+const qualityExportStatus = ref('all')
+const qualityExportType = ref('')
+const qualityExportLoading = ref(false)
 
 // 分页相关
 const currentPage = ref(1)
@@ -333,7 +409,10 @@ const handleCurrentChange = (newPage) => {
 const exportData = async () => {
   try {
     loading.value = true
-    
+
+    // 调试信息
+    console.log('🏠 房间信息导出 - 开始执行')
+
     // 构建查询参数对象
     const params = {}
     if (selectedBuilding.value) params.building_unit = selectedBuilding.value
@@ -342,7 +421,10 @@ const exportData = async () => {
     if (selectedContract.value) params.contract_status = selectedContract.value
     if (selectedIssueFilter.value) params.issue_filter = selectedIssueFilter.value
     if (selectedLetterFilter.value) params.letter_filter = selectedLetterFilter.value
-    
+
+    console.log('🏠 房间信息导出 - 参数:', params)
+    console.log('🏠 房间信息导出 - 调用API: /admin/export')
+
     // 调用后端导出接口
     const response = await adminAPI.exportExcel(params)
     
@@ -379,8 +461,95 @@ const exportData = async () => {
   }
 }
 
+// 导出质量问题
+const exportQualityIssues = async () => {
+  try {
+    qualityExportLoading.value = true
+
+    // 调试信息
+    console.log('🔧 质量问题导出 - 开始执行')
+
+    // 首先获取符合条件的所有房间ID
+    const params = {}
+    if (qualityExportBuilding.value) {
+      params.building_unit = qualityExportBuilding.value
+    }
+
+    // 获取汇总数据
+    const summaryResponse = await adminAPI.getSummary(qualityExportBuilding.value)
+    const allRooms = summaryResponse.data.rooms || []
+
+    if (allRooms.length === 0) {
+      ElMessage.warning('未找到符合条件的房间数据')
+      return
+    }
+
+    // 获取所有房间ID
+    const roomIds = allRooms.map(room => room.id).join(',')
+
+    // 构建导出参数
+    const exportParams = new URLSearchParams({
+      room_ids: roomIds,
+      status_filter: qualityExportStatus.value
+    })
+
+    // 如果选择了问题类型，需要在后端进行筛选（这里需要修改后端API支持）
+    if (qualityExportType.value) {
+      exportParams.append('issue_type', qualityExportType.value)
+    }
+
+    // 调用导出API
+    const response = await fetch(`/api/export-quality-issues?${exportParams}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error('导出失败')
+    }
+
+    // 处理文件下载
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+
+    // 生成文件名
+    const buildingText = qualityExportBuilding.value || '全部'
+    const statusText = qualityExportStatus.value === 'all' ? '全部' :
+                      qualityExportStatus.value === 'pending' ? '待验收' : '已验收'
+    const typeText = qualityExportType.value || '全部'
+    const dateStr = new Date().toLocaleDateString().replace(/\//g, '')
+    const filename = `质量问题清单_${buildingText}_${statusText}_${typeText}_${dateStr}.xlsx`
+
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
+    ElMessage.success('质量问题Excel导出成功')
+  } catch (error) {
+    console.error('导出质量问题Excel失败:', error)
+    ElMessage.error('导出质量问题Excel失败：' + (error.message || '未知错误'))
+  } finally {
+    qualityExportLoading.value = false
+  }
+}
+
+
 const viewRoom = (room) => {
-  router.push(`/rooms/${room.id}`)
+  // 保存当前页码到查询参数，方便返回时恢复
+  router.push({
+    path: `/dashboard/rooms/${room.id}`,
+    query: {
+      from: 'admin-summary',
+      returnPage: currentPage.value,
+      returnPageSize: pageSize.value
+    }
+  })
 }
 
 const resetRoom = async (room) => {
@@ -413,10 +582,15 @@ const resetRoom = async (room) => {
 const getRoleName = (role) => {
   const roleMap = {
     customer_ambassador: '客户大使',
-    project_engineer: '项目工程师', 
+    project_engineer: '项目工程师',
     maintenance_engineer: '维修工程师'
   }
   return roleMap[role] || role
+}
+
+const getUserByRole = (assignedUsers, targetRole) => {
+  if (!assignedUsers || assignedUsers.length === 0) return null
+  return assignedUsers.find(user => user.role === targetRole) || null
 }
 
 const getStatusType = (status) => {
@@ -457,6 +631,18 @@ const formatRoomNumber = (roomNumber) => {
 
 
 onMounted(() => {
+  // 检查是否有返回页码参数，如果有则恢复
+  const returnPage = router.currentRoute.value.query.returnPage
+  const returnPageSize = router.currentRoute.value.query.returnPageSize
+
+  if (returnPage && !isNaN(parseInt(returnPage))) {
+    currentPage.value = parseInt(returnPage)
+  }
+
+  if (returnPageSize && !isNaN(parseInt(returnPageSize))) {
+    pageSize.value = parseInt(returnPageSize)
+  }
+
   fetchSummary()
 })
 </script>
@@ -467,10 +653,83 @@ onMounted(() => {
 }
 
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 20px;
+}
+
+.header h3 {
+  margin-bottom: 20px;
+  text-align: center;
+  color: #303133;
+}
+
+/* 导出区域容器 */
+.export-sections-container {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+/* 导出区域样式 */
+.export-section {
+  flex: 1;
+  max-width: 48%;
+  min-height: 200px;
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid #e4e7ed;
+  transition: all 0.3s ease;
+}
+
+.export-section:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.export-section.room-export {
+  background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+  border-left: 4px solid #409eff;
+  border-color: #409eff;
+}
+
+.export-section.quality-export {
+  background: linear-gradient(135deg, #f0f9f0 0%, #e6f7e6 100%);
+  border-left: 4px solid #67c23a;
+  border-color: #67c23a;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #303133;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.filter-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 80px; /* 确保两个区域高度一致 */
+}
+
+/* 统一的导出按钮区域 */
+.export-buttons-container {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+.export-button-section {
+  flex: 1;
+  max-width: 48%;
+  display: flex;
+  justify-content: center;
 }
 
 .filters {
@@ -480,12 +739,35 @@ onMounted(() => {
 .filter-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
+  justify-content: center;
+}
+
+.filter-row .el-select {
+  width: 110px;
+}
+
+/* 统计卡片容器 */
+.stats-cards-container {
+  margin: 30px 0;
+  display: flex;
+  justify-content: center;
 }
 
 .stats-cards {
-  margin-bottom: 20px;
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: 1000px; /* 限制最大宽度 */
+}
+
+.stat-card-wrapper {
+  flex: 1;
+  min-width: 160px;
+  max-width: 200px;
 }
 
 .stat-card {

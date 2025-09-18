@@ -102,7 +102,7 @@ const props = defineProps({
   },
   currentPassword: {
     type: String,
-    required: true
+    default: ''
   }
 })
 

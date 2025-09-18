@@ -1,7 +1,7 @@
 <template>
   <div class="home-container">
     <div class="welcome-section">
-      <h1>🏠 ZWY项目管理系统</h1>
+      <h1>🏠 瑧湾悦项目品质管理系统</h1>
       <div class="status-card">
         <h2>✅ 系统已启动成功！</h2>
         <p>前后端服务均已正常运行</p>

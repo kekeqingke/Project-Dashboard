@@ -3,7 +3,7 @@
     <el-card class="login-card">
       <template #header>
         <div class="card-header">
-          <span>ZWY项目管理系统</span>
+          <span>瑧湾悦项目品质管理系统</span>
         </div>
       </template>
       
@@ -63,10 +63,10 @@ const rules = {
 const handleLogin = async () => {
   const form = loginFormRef.value
   if (!form) return
-  
+
   await form.validate(async (valid) => {
     if (!valid) return
-    
+
     loading.value = true
     try {
       const result = await authStore.login(loginForm.username, loginForm.password)

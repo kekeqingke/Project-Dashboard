@@ -123,6 +123,7 @@ class QualityIssueBase(BaseModel):
     issue_type: Optional[str] = "质量瑕疵"
     images: Optional[str] = None
     record_date: Optional[datetime] = None  # 录入时间，接收日期字符串格式如 "2025-09-11" 或 "2025/09/11"
+    responsible_unit: Optional[str] = None  # 责任单位
     
     @field_validator('record_date', mode='before')
     @classmethod
@@ -154,6 +155,7 @@ class QualityIssueUpdate(BaseModel):
     description: Optional[str] = None
     issue_type: Optional[str] = None
     record_date: Optional[datetime] = None
+    responsible_unit: Optional[str] = None
     
     @field_validator('record_date', mode='before')
     @classmethod

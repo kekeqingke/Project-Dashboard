@@ -3,15 +3,15 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 REM ====================================================================
-REM                    ZWY项目管理系统服务管理脚本
+REM            ZWY项目管理系统服务管理脚本 v2.0 (生产优化版)
 REM                        支持多种维护操作
 REM ====================================================================
 
-set "PROJECT_DIR=%~dp0"
-set "BACKEND_DIR=%PROJECT_DIR%backend"
+set "PROJECT_DIR=%~dp0.."
+set "BACKEND_DIR=%PROJECT_DIR%\backend"
 set "NGINX_DIR=D:\nginx-1.28.0"
-set "LOG_DIR=%PROJECT_DIR%maintenance_logs"
-set "BACKUP_DIR=%PROJECT_DIR%backups"
+set "LOG_DIR=%~dp0maintenance_logs"
+set "BACKUP_DIR=%~dp0backup"
 
 REM 创建必要目录
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
@@ -41,19 +41,19 @@ REM ====================================================================
 cls
 echo.
 echo ====================================================================
-echo                    ZWY项目管理系统服务管理
+echo                ZWY项目管理系统服务管理 v2.0
 echo ====================================================================
 echo.
 echo 请选择操作：
 echo.
 echo 【1】 查看服务状态        【2】 启动所有服务
-echo 【3】 停止所有服务        【4】 重启所有服务  
-echo 【5】 仅备份数据          【6】 完整维护（停止→备份→重启）
+echo 【3】 停止所有服务        【4】 重启所有服务
+echo 【5】 仅备份数据          【6】 完整维护
 echo 【7】 查看维护日志        【8】 清理过期文件
-echo 【9】 帮助信息            【0】 退出
+echo 【9】 检查端口冲突        【A】 帮助信息            【0】 退出
 echo.
 echo ====================================================================
-set /p "CHOICE=请输入选项 (0-9): "
+set /p "CHOICE=请输入选项 (0-9,A): "
 
 if "%CHOICE%"=="1" goto :check_status
 if "%CHOICE%"=="2" goto :start_services
@@ -63,7 +63,8 @@ if "%CHOICE%"=="5" goto :backup_only
 if "%CHOICE%"=="6" goto :full_maintenance
 if "%CHOICE%"=="7" goto :view_logs
 if "%CHOICE%"=="8" goto :cleanup_files
-if "%CHOICE%"=="9" goto :show_help
+if "%CHOICE%"=="9" goto :check_ports
+if /i "%CHOICE%"=="A" goto :show_help
 if "%CHOICE%"=="0" exit /b 0
 
 echo 无效选择，请重新输入...
@@ -86,49 +87,33 @@ netstat -ano | findstr :8000 >nul 2>&1
 if %errorlevel% equ 0 (
     for /f "tokens=5" %%p in ('netstat -ano ^| findstr :8000') do (
         echo ✅ 后端API服务：运行中 ^(端口:8000, PID:%%p^)
-        set "BACKEND_PID=%%p"
         goto :check_nginx
     )
 ) else (
     echo ❌ 后端API服务：未运行 ^(端口:8000^)
-    set "BACKEND_PID="
 )
 
 :check_nginx
 REM 检查Nginx服务
 netstat -ano | findstr :80 >nul 2>&1
 if %errorlevel% equ 0 (
-    for /f "tokens=5" %%p in ('netstat -ano ^| findstr :80') do (
+    for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":80 "') do (
         echo ✅ Nginx Web服务：运行中 ^(端口:80, PID:%%p^)
-        set "NGINX_PID=%%p"
         goto :check_website
     )
 ) else (
     echo ❌ Nginx Web服务：未运行 ^(端口:80^)
-    set "NGINX_PID="
 )
 
 :check_website
 REM 检查网站可访问性
 echo.
-echo 正在检查网站可访问性...
-ping -n 1 127.0.0.1 >nul 2>&1
-if %errorlevel% equ 0 (
-    echo ✅ 网络连通性：正常
-    REM 尝试访问网站
-    curl -s -o nul -w "%%{http_code}" http://localhost/ 2>nul | findstr "200" >nul 2>&1
-    if !errorlevel! equ 0 (
-        echo ✅ 网站访问：正常 ^(http://localhost^)
-        echo ✅ 内网访问：http://10.13.33.52
-    ) else (
-        echo ❌ 网站访问：异常
-    )
-) else (
-    echo ❌ 网络连通性：异常
-)
+echo 🌐 系统访问地址：
+echo   • 本机访问：http://localhost
+echo   • 内网访问：http://10.13.33.52
+echo   • API文档： http://10.13.33.52/docs
 
 echo.
-echo ====================================================================
 if not "%ACTION%"=="" exit /b 0
 pause
 goto :menu
@@ -142,32 +127,28 @@ echo.
 
 REM 停止Nginx
 echo 正在停止Nginx服务...
-cd /d "%NGINX_DIR%"
-nginx.exe -s quit >nul 2>&1
-timeout /t 3 /nobreak >nul
+if exist "%NGINX_DIR%" (
+    cd /d "%NGINX_DIR%"
+    nginx.exe -s quit >nul 2>&1
+    timeout /t 3 /nobreak >nul
+)
 
-REM 检查Nginx是否停止
-netstat -ano | findstr :80 >nul 2>&1
-if %errorlevel% equ 0 (
-    echo ⚠️  Nginx未能正常停止，尝试强制结束...
-    for /f "tokens=5" %%p in ('netstat -ano ^| findstr :80') do (
-        taskkill /pid %%p /f >nul 2>&1
-    )
-    echo ✅ Nginx服务已强制停止
-) else (
-    echo ✅ Nginx服务已正常停止
+REM 强制停止Nginx进程（如果正常停止失败）
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":80 " 2^>nul') do (
+    taskkill /pid %%p /f >nul 2>&1
+    echo ✅ Nginx服务已停止 ^(PID: %%p^)
 )
 
 REM 停止后端服务
 echo 正在停止后端服务...
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr :8000') do (
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr :8000 2^>nul') do (
     taskkill /pid %%p /f >nul 2>&1
     echo ✅ 后端服务已停止 ^(PID: %%p^)
 )
 
 REM 验证服务停止
 timeout /t 2 /nobreak >nul
-netstat -ano | findstr ":8000\|:80" >nul 2>&1
+netstat -ano | findstr ":8000\|:80 " >nul 2>&1
 if %errorlevel% equ 0 (
     echo ⚠️  部分服务可能未完全停止
 ) else (
@@ -186,58 +167,143 @@ echo                        启动所有服务
 echo ====================================================================
 echo.
 
-REM 启动后端服务
-echo 正在启动后端API服务...
-cd /d "%BACKEND_DIR%"
-start "ZWY Backend Service" /min cmd /k "uvicorn main:app --host 0.0.0.0 --port 8000"
-echo ✅ 后端服务启动命令已执行
+REM 启动前自动处理端口冲突
+echo 1. 检查并处理端口占用...
 
-REM 等待后端服务启动
-echo 等待后端服务启动...
-timeout /t 8 /nobreak >nul
-
-REM 验证后端服务
-netstat -ano | findstr :8000 >nul 2>&1
+REM 检查端口8000
+netstat -ano | findstr ":8000 " >nul 2>&1
 if %errorlevel% equ 0 (
-    echo ✅ 后端API服务启动成功 ^(端口:8000^)
+    echo ⚠️  端口8000被占用，正在清理...
+    for /f "tokens=5" %%p in ('netstat -ano ^| findstr :8000') do (
+        taskkill /pid %%p /f >nul 2>&1
+        echo ✅ 已清理端口8000占用进程
+    )
+    timeout /t 2 /nobreak >nul
 ) else (
-    echo ❌ 后端API服务启动失败
-    echo 请检查控制台输出或手动启动
+    echo ✅ 端口8000可用
+)
+
+REM 自动处理端口80占用
+netstat -ano | findstr ":80 " >nul 2>&1
+if %errorlevel% equ 0 (
+    echo ⚠️  端口80被占用，正在自动释放...
+
+    REM 停止Web发布服务
+    net stop "World Wide Web Publishing Service" >nul 2>&1
+    timeout /t 2 /nobreak >nul
+
+    REM 检查是否释放
+    netstat -ano | findstr ":80 " >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo 正在停止HTTP服务...
+        net stop http /y >nul 2>&1
+        timeout /t 3 /nobreak >nul
+
+        REM 最终检查
+        netstat -ano | findstr ":80 " >nul 2>&1
+        if !errorlevel! equ 0 (
+            echo ⚠️  端口80仍被占用，尝试强制清理...
+            for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":80 "') do (
+                if not "%%p"=="4" (
+                    taskkill /pid %%p /f >nul 2>&1
+                    echo ✅ 已强制清理进程 %%p
+                )
+            )
+        ) else (
+            echo ✅ 端口80已成功释放
+        )
+    ) else (
+        echo ✅ 端口80已成功释放
+    )
+) else (
+    echo ✅ 端口80可用
+)
+
+echo.
+echo 2. 启动后端API服务...
+cd /d "%BACKEND_DIR%"
+
+REM 检查Python环境和main.py
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ❌ Python环境不可用
     if not "%ACTION%"=="" exit /b 1
     pause
     goto :menu
 )
 
-REM 启动Nginx服务
+if not exist "main.py" (
+    echo ❌ 未找到main.py文件
+    if not "%ACTION%"=="" exit /b 1
+    pause
+    goto :menu
+)
+
+REM 启动后端服务
+start "ZWY Backend Service" /min cmd /k "uvicorn main:app --host 0.0.0.0 --port 8000"
+echo ✅ 后端服务启动命令已执行
+
+REM 等待并验证后端服务
+echo 等待后端服务启动...
+for /L %%i in (1,1,15) do (
+    timeout /t 2 /nobreak >nul
+    netstat -ano | findstr :8000 >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo ✅ 后端API服务启动成功 ^(端口:8000^)
+        goto :start_nginx
+    )
+)
+
+echo ❌ 后端API服务启动失败或超时
+if not "%ACTION%"=="" exit /b 1
+pause
+goto :menu
+
+:start_nginx
 echo.
-echo 正在启动Nginx服务...
+echo 3. 启动Nginx Web服务...
+if not exist "%NGINX_DIR%" (
+    echo ❌ Nginx目录不存在: %NGINX_DIR%
+    echo 请检查Nginx安装路径
+    if not "%ACTION%"=="" exit /b 1
+    pause
+    goto :menu
+)
+
 cd /d "%NGINX_DIR%"
 start "ZWY Nginx Service" /min nginx.exe
 echo ✅ Nginx服务启动命令已执行
 
-REM 等待Nginx启动
-timeout /t 5 /nobreak >nul
-
-REM 验证Nginx服务
-netstat -ano | findstr :80 >nul 2>&1
-if %errorlevel% equ 0 (
-    echo ✅ Nginx Web服务启动成功 ^(端口:80^)
-) else (
-    echo ❌ Nginx Web服务启动失败
-    echo 请检查配置文件或手动启动
-    if not "%ACTION%"=="" exit /b 1
-    pause
-    goto :menu
+REM 等待并验证Nginx服务
+echo 等待Nginx服务启动...
+for /L %%i in (1,1,10) do (
+    timeout /t 1 /nobreak >nul
+    netstat -ano | findstr ":80 " >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo ✅ Nginx Web服务启动成功 ^(端口:80^)
+        goto :start_complete
+    )
 )
 
+echo ❌ Nginx Web服务启动失败或超时
+if not "%ACTION%"=="" exit /b 1
+pause
+goto :menu
+
+:start_complete
 echo.
 echo ====================================================================
 echo                      🎉 服务启动完成！
 echo ====================================================================
-echo 📱 访问地址：
-echo   本机访问: http://localhost
-echo   内网访问: http://10.13.33.52
-echo   API文档: http://localhost/docs
+echo 🌐 系统访问地址：
+echo   • 本机访问：http://localhost
+echo   • 内网访问：http://10.13.33.52
+echo   • API文档： http://10.13.33.52/docs
+echo.
+echo 💡 建议验证功能：
+echo   1. 浏览器访问系统
+echo   2. 测试登录功能
+echo   3. 检查新功能是否正常
 echo ====================================================================
 
 if not "%ACTION%"=="" exit /b 0
@@ -277,19 +343,21 @@ set "BACKUP_SUBDIR=%BACKUP_DIR%\%TIMESTAMP%"
 echo 创建备份目录: %BACKUP_SUBDIR%
 if not exist "%BACKUP_SUBDIR%" mkdir "%BACKUP_SUBDIR%"
 
+cd /d "%BACKEND_DIR%"
+
 REM 备份数据库
-if exist "%BACKEND_DIR%\zwy_project.db" (
+if exist "zwy_project.db" (
     echo 正在备份数据库...
-    copy "%BACKEND_DIR%\zwy_project.db" "%BACKUP_SUBDIR%\zwy_project_%TIMESTAMP%.db" >nul
+    copy "zwy_project.db" "%BACKUP_SUBDIR%\zwy_project_%TIMESTAMP%.db" >nul
     echo ✅ 数据库备份完成
 ) else (
     echo ❌ 数据库文件不存在
 )
 
 REM 备份配置文件
-if exist "%BACKEND_DIR%\.env" (
+if exist ".env" (
     echo 正在备份环境配置...
-    copy "%BACKEND_DIR%\.env" "%BACKUP_SUBDIR%\.env_%TIMESTAMP%" >nul
+    copy ".env" "%BACKUP_SUBDIR%\.env_%TIMESTAMP%" >nul
     echo ✅ 环境配置备份完成
 ) else (
     echo ⚠️  环境配置文件不存在
@@ -300,16 +368,14 @@ if exist "%NGINX_DIR%\conf\nginx.conf" (
     echo 正在备份Nginx配置...
     copy "%NGINX_DIR%\conf\nginx.conf" "%BACKUP_SUBDIR%\nginx_%TIMESTAMP%.conf" >nul
     echo ✅ Nginx配置备份完成
-) else (
-    echo ⚠️  Nginx配置文件不存在
 )
 
 echo.
 echo ====================================================================
 echo                      🎉 备份操作完成！
 echo ====================================================================
-echo 备份位置: %BACKUP_SUBDIR%
-echo 备份时间: %TIMESTAMP%
+echo 📁 备份位置: %BACKUP_SUBDIR%
+echo 🕐 备份时间: %TIMESTAMP%
 echo ====================================================================
 
 if not "%ACTION%"=="" exit /b 0
@@ -323,15 +389,7 @@ echo                      完整系统维护
 echo ====================================================================
 echo.
 
-echo 📋 维护流程：
-echo 1. 停止所有服务
-echo 2. 备份数据和配置  
-echo 3. 清理过期文件
-echo 4. 重新启动服务
-echo 5. 系统健康检查
-echo.
-
-set /p "CONFIRM=确认执行完整维护? (Y/N): "
+set /p "CONFIRM=确认执行完整维护（停止→备份→清理→重启）? (Y/N): "
 if /i not "%CONFIRM%"=="Y" (
     echo 维护操作已取消
     if not "%ACTION%"=="" exit /b 0
@@ -346,11 +404,6 @@ echo.
 call :cleanup_files
 echo.
 call :start_services
-echo.
-
-echo 正在执行系统健康检查...
-timeout /t 10 /nobreak >nul
-call :check_status
 
 echo.
 echo ====================================================================
@@ -375,20 +428,8 @@ if not exist "%LOG_DIR%" (
 )
 
 echo 最近的维护日志文件:
+dir /b /od "%LOG_DIR%\*.log" 2>nul
 echo.
-dir /b /od "%LOG_DIR%\maintenance_*.log" 2>nul | tail -n 5
-echo.
-
-set /p "VIEW_LOG=是否查看最新日志文件? (Y/N): "
-if /i "%VIEW_LOG%"=="Y" (
-    for /f %%f in ('dir /b /od "%LOG_DIR%\maintenance_*.log" 2^>nul ^| tail -n 1') do (
-        echo.
-        echo 正在查看: %%f
-        echo ====================================================================
-        type "%LOG_DIR%\%%f"
-        echo ====================================================================
-    )
-)
 
 pause
 goto :menu
@@ -417,10 +458,23 @@ if not "%ACTION%"=="" exit /b 0
 pause
 goto :menu
 
+:check_ports
+echo.
+echo ====================================================================
+echo                        端口占用检查
+echo ====================================================================
+echo.
+
+call "%~dp0check_ports.bat"
+
+if not "%ACTION%"=="" exit /b 0
+pause
+goto :menu
+
 :show_help
 echo.
 echo ====================================================================
-echo                        使用帮助
+echo                        使用帮助 v2.0
 echo ====================================================================
 echo.
 echo 【命令行使用方式】
@@ -428,21 +482,23 @@ echo %~nx0 [操作]
 echo.
 echo 【支持的操作参数】
 echo   status      - 查看服务状态
-echo   start       - 启动所有服务
-echo   stop        - 停止所有服务  
+echo   start       - 启动所有服务（自动处理端口冲突）
+echo   stop        - 停止所有服务
 echo   restart     - 重启所有服务
 echo   backup      - 仅备份数据
 echo   maintenance - 完整维护（停止→备份→清理→重启）
 echo   help        - 显示此帮助信息
 echo.
-echo 【使用示例】
-echo   %~nx0 status           # 查看服务状态
-echo   %~nx0 restart          # 重启所有服务
-echo   %~nx0 backup           # 仅执行备份
-echo   %~nx0 maintenance      # 执行完整维护
+echo 【v2.0新特性】
+echo   ✅ 自动端口冲突处理（HTTP服务、端口80）
+echo   ✅ 增强的启动验证和超时处理
+echo   ✅ 更完善的错误处理和回滚机制
+echo   ✅ 详细的状态检查和日志记录
 echo.
-echo 【交互模式】
-echo   双击运行脚本或不带参数运行，进入交互式菜单
+echo 【使用示例】
+echo   %~nx0 start            # 自动启动（推荐）
+echo   %~nx0 restart          # 重启所有服务
+echo   %~nx0 maintenance      # 执行完整维护
 echo.
 echo ====================================================================
 

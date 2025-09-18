@@ -1,0 +1,1 @@
+-- 责任单位功能数据库迁移脚本\n-- 执行日期：2025-09-13\n-- 功能：为 quality_issues 表添加 responsible_unit 字段\n\n-- 添加责任单位字段\nALTER TABLE quality_issues ADD COLUMN responsible_unit TEXT;

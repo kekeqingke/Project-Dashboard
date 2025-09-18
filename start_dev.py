@@ -43,6 +43,9 @@ def kill_port(port):
                             pids.add(pid)
                 
                 for pid in pids:
+                    # 跳过系统进程 (PID 0-10)
+                    if int(pid) <= 10:
+                        continue
                     try:
                         # 使用正确的taskkill语法，/T杀死进程树，/F强制终止
                         subprocess.run(f'taskkill /PID {pid} /T /F', shell=True, check=True)

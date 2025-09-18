@@ -1,7 +1,7 @@
 <template>
   <div class="room-detail" v-loading="loading">
     <div class="header">
-      <el-button @click="$router.go(-1)" type="text">
+      <el-button @click="handleGoBack" type="text">
         <el-icon><ArrowLeft /></el-icon>
         返回
       </el-button>
@@ -33,14 +33,20 @@
           </el-table-column>
           <el-table-column prop="description" label="问题描述" />
           <el-table-column prop="issue_type" label="问题类型" width="100" />
-          <el-table-column label="录入时间" width="180">
+          <el-table-column label="录入时间" width="120">
             <template #default="scope">
-              {{ formatDate(scope.row.record_date || scope.row.created_at) }}
+              {{ formatDateOnly(scope.row.record_date || scope.row.created_at) }}
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="100">
+          <el-table-column label="状态" width="160">
             <template #default="scope">
-              <el-tag :type="scope.row.status === '已验收' ? 'success' : 'warning'">
+              <div v-if="scope.row.status === '已验收'" class="status-with-time">
+                <el-tag type="success">已验收</el-tag>
+                <div class="acceptance-time" v-if="scope.row.accepted_at">
+                  ({{ formatDateOnly(scope.row.accepted_at) }})
+                </div>
+              </div>
+              <el-tag v-else type="warning">
                 {{ scope.row.status }}
               </el-tag>
             </template>
@@ -100,13 +106,14 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { roomAPI, qualityIssueAPI } from '../api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Plus } from '@element-plus/icons-vue'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const loading = ref(false)
 const activeTab = ref('issues')
@@ -269,11 +276,58 @@ const formatDate = (dateString) => {
   })
 }
 
+// 格式化日期 - 只显示年月日
+const formatDateOnly = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleDateString('zh-CN')
+}
+
 // 格式化房号，去掉前导零
 const formatRoomNumber = (roomNumber) => {
   if (!roomNumber) return roomNumber
   // 将房号转为字符串，然后去掉前导零
   return parseInt(roomNumber).toString()
+}
+
+// 处理返回逻辑，根据来源页面进行不同的返回处理
+const handleGoBack = () => {
+  const fromPage = route.query.from
+  const returnPage = route.query.returnPage
+  const returnPageSize = route.query.returnPageSize
+  const returnBuilding = route.query.returnBuilding
+  const returnRoomSearch = route.query.returnRoomSearch
+  const returnRole = route.query.returnRole
+  const returnPerson = route.query.returnPerson
+
+  if (fromPage === 'admin-summary') {
+    // 来自数据汇总页面，返回到带有页码的汇总页面
+    const query = {}
+    if (returnPage) query.returnPage = returnPage
+    if (returnPageSize) query.returnPageSize = returnPageSize
+
+    router.push({
+      path: '/dashboard/admin/summary',
+      query: query
+    })
+  } else if (fromPage === 'room-list') {
+    // 来自房间管理页面，返回到房间管理页面并恢复页码和筛选条件
+    const query = {}
+    if (returnPage) query.returnPage = returnPage
+    if (returnPageSize) query.returnPageSize = returnPageSize
+    if (returnBuilding) query.returnBuilding = returnBuilding
+    if (returnRoomSearch) query.returnRoomSearch = returnRoomSearch
+    if (returnRole) query.returnRole = returnRole
+    if (returnPerson) query.returnPerson = returnPerson
+
+    router.push({
+      path: '/dashboard/rooms',
+      query: query
+    })
+  } else {
+    // 其他情况使用浏览器后退
+    router.go(-1)
+  }
 }
 
 
@@ -312,8 +366,20 @@ watch(() => route.params.id, (newId, oldId) => {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-left: auto;
+}
+
+.status-with-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.acceptance-time {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  text-align: center;
 }
 
 .room-title {

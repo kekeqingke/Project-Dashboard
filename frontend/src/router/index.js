@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import Home from '../views/Home.vue'
 import TestPage from '../views/TestPage.vue'
 import Login from '../views/Login.vue'
@@ -30,37 +31,37 @@ const routes = [
     component: Dashboard,
     children: [
       {
-        path: '/rooms',
+        path: 'rooms',
         name: 'RoomList',
         component: RoomList
       },
       {
-        path: '/rooms/:id',
+        path: 'rooms/:id',
         name: 'RoomDetail',
         component: RoomDetail
       },
       {
-        path: '/admin/users',
+        path: 'admin/users',
         name: 'UserManagement',
         component: UserManagement
       },
       {
-        path: '/admin/summary',
+        path: 'admin/summary',
         name: 'AdminSummary',
         component: AdminSummary
       },
       {
-        path: '/ambassador',
+        path: 'ambassador',
         name: 'AmbassadorDashboard',
         component: AmbassadorDashboard
       },
       {
-        path: '/engineer',
+        path: 'engineer',
         name: 'EngineerDashboard',
         component: EngineerDashboard
       },
       {
-        path: '/profile/change-password',
+        path: 'profile/change-password',
         name: 'ChangePassword',
         component: ChangePassword
       }
@@ -77,6 +78,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 })
+
+// 路由导航监听已移除，调试完成
 
 console.log('✅ Router configured with', routes.length, 'routes')
 
